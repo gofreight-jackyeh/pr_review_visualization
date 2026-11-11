@@ -1,0 +1,537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pr-explorer.local/schemas/artifact/v2/artifact.schema.json",
+  "$comment": "2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
+  "title": "PR Review Explorer Artifact v2",
+  "description": "Two document kinds share one schema. system_map: the whole repository at one commit (cached per repo+commit, reused by every PR). pr_overlay: one PR laid over a system map. Structure comes from static analysis; Claude only writes Text items, each of which must cite evidence (spec v2 §5 Layer 7).",
+  "oneOf": [
+    { "$ref": "#/$defs/SystemMap" },
+    { "$ref": "#/$defs/PrOverlay" }
+  ],
+  "$defs": {
+    "Id": { "type": "string", "minLength": 1, "maxLength": 512, "description": "Stable, content-derived ID; identical across base/head and across PRs." },
+    "Ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+    "Sha": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+    "Side": { "enum": ["base", "head"] },
+    "Version": { "type": "string", "minLength": 1 },
+
+    "CodeRef": {
+      "description": "Evidence location shown as path:line (spec v2 §4: no in-app code viewer).",
+      "type": "object", "additionalProperties": false,
+      "required": ["side", "path", "start_line"],
+      "properties": {
+        "side": { "$ref": "#/$defs/Side" },
+        "path": { "type": "string", "minLength": 1 },
+        "start_line": { "type": "integer", "minimum": 1 },
+        "end_line": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "Evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "description", "refs", "producer"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["ast", "import", "diff", "framework_rule", "ts_compiler", "doc", "pr_metadata"] },
+        "description": { "type": "string", "minLength": 1 },
+        "refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } },
+        "producer": {
+          "type": "object", "additionalProperties": false, "required": ["name", "version"],
+          "properties": { "name": { "type": "string" }, "version": { "type": "string" } }
+        }
+      }
+    },
+    "Text": {
+      "description": "One explanatory statement. semantic = written by Claude; pr_description = copied from the PR when Claude was skipped. Every Text cites evidence.",
+      "type": "object", "additionalProperties": false,
+      "required": ["text", "source", "evidence_refs"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["static", "semantic", "pr_description"] },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "Named": {
+      "description": "Fields every map element shares. technical_name always exists; business_name/description appear only when Claude produced grounded text.",
+      "type": "object",
+      "required": ["id", "technical_name", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "technical_name": { "type": "string", "minLength": 1 },
+        "business_name": { "$ref": "#/$defs/Text" },
+        "description": { "$ref": "#/$defs/Text" },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "Coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["language", "level", "file_count"],
+      "properties": {
+        "language": { "type": "string" },
+        "level": { "enum": ["deep", "generic", "unsupported"] },
+        "file_count": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "SemanticStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["skipped", "pending", "done", "failed", "unavailable"], "description": "pending: static content is stored and browsable; Claude texts are still being written and this document will be replaced." },
+        "tier": { "enum": ["none", "light", "standard", "deep"] },
+        "decision": {
+          "type": "object", "additionalProperties": false, "required": ["score", "reasons", "mode"],
+          "properties": {
+            "score": { "type": "number", "minimum": 0 },
+            "reasons": { "type": "array", "items": { "type": "string" } },
+            "mode": { "enum": ["auto", "off", "light", "standard", "deep"] }
+          }
+        },
+        "dropped_claims": { "type": "integer", "minimum": 0, "description": "Claude statements discarded for citing nothing that exists." },
+        "knowledge_sources": { "type": "array", "items": { "type": "string" } },
+        "error": { "type": "string" }
+      }
+    },
+
+    "Capability": {
+      "description": "Business capability candidate, grouped statically (Django app / top-level package / TS feature dir). Claude may name it, never regroup it.",
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["path", "category", "entity_ids", "entry_point_ids"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "path": { "type": "string", "description": "Directory the group comes from, e.g. app/orders." },
+        "category": { "enum": ["business", "shared", "engineering"], "description": "Static: shared = depended on by most capabilities with almost no entry points; engineering = tests, deployment, build config, docs, scripts. Only business capabilities belong to a domain and show by default." },
+        "parent_capability_id": { "$ref": "#/$defs/Id", "description": "Set when a capability over the entry-point threshold was split by sub-directory." },
+        "domain_id": { "$ref": "#/$defs/Id", "description": "The business domain this capability belongs to (business capabilities only)." },
+        "language": { "type": "string" },
+        "entity_ids": { "$ref": "#/$defs/Ids" },
+        "entry_point_ids": { "$ref": "#/$defs/Ids" },
+        "component_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Entity": {
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["capability_id", "refs"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "capability_id": { "$ref": "#/$defs/Id" },
+        "refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CodeRef" } }
+      }
+    },
+    "EntryPoint": {
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["capability_id", "kind", "refs"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "capability_id": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["route", "api", "task", "command", "schedule", "event", "ui_route"] },
+        "handler_component_id": { "$ref": "#/$defs/Id" },
+        "refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CodeRef" } }
+      }
+    },
+    "Component": {
+      "description": "Technical component, hidden unless the user expands a capability. Shown as name + path:line only.",
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["capability_id", "kind", "refs"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "capability_id": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["module", "class", "function", "method", "view", "serializer", "form", "task", "command", "model", "ui_component", "external"] },
+        "refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } }
+      },
+      "if": { "properties": { "kind": { "const": "external" } } },
+      "else": { "properties": { "refs": { "minItems": 1 } } }
+    },
+    "Relation": {
+      "description": "Aggregated dependency between two capabilities (or capability → entity).",
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "source", "target", "kind", "weight", "confidence", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "source": { "$ref": "#/$defs/Id" },
+        "target": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["depends_on", "calls", "uses_entity"] },
+        "weight": { "type": "integer", "minimum": 1, "description": "How many static facts back this relation." },
+        "confidence": { "enum": ["confirmed", "unknown"] },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "Step": {
+      "allOf": [{ "$ref": "#/$defs/StepFields" }],
+      "unevaluatedProperties": false
+    },
+    "StepFields": {
+      "description": "One business step: entering another capability or acting on an entity. Consecutive calls inside one capability collapse into one step.",
+      "type": "object",
+      "required": ["id", "order", "kind", "capability_id", "component_ids", "technical_label", "evidence_status", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "order": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["enter", "call", "read", "write", "create", "delete", "emit", "external", "raise"] },
+        "capability_id": { "$ref": "#/$defs/Id" },
+        "entity_id": { "$ref": "#/$defs/Id" },
+        "component_ids": { "$ref": "#/$defs/Ids" },
+        "technical_label": { "type": "string", "minLength": 1 },
+        "business_label": { "$ref": "#/$defs/Text" },
+        "evidence_status": { "enum": ["confirmed", "possible", "unknown"], "description": "possible = inside an unconfirmed branch; unknown = reached only via a dynamic call." },
+        "branch": {
+          "type": "object", "additionalProperties": false, "required": ["condition"],
+          "properties": { "condition": { "type": "string" } }
+        },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "Timeline": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "steps"],
+      "properties": {
+        "mode": { "enum": ["animation", "static_flow"] },
+        "mode_reason": { "type": "string" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/Step" } }
+      }
+    },
+    "Domain": {
+      "description": "Business domain above capabilities. With Claude: Claude assigns existing business capabilities (it never splits, merges or adds them) and names the domain — source semantic. Without Claude: one domain per top-level directory — source static.",
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["source", "order"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "source": { "enum": ["static", "semantic"] },
+        "order": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Phase": {
+      "description": "Consecutive steps grouped into one business phase. Claude may only cut the existing step order: phases are contiguous, cover every step, and each step belongs to exactly one phase (validated by the backend).",
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "label", "step_ids"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "label": { "$ref": "#/$defs/Text" },
+        "step_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "ArchRule": {
+      "description": "An architecture rule of the repository. documented = machine-checkable config (e.g. .importlinter.ini contracts) or architecture docs; inferred = derived from repo-wide dependency statistics (statistic must be stated).",
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "origin", "kind", "title", "description", "scope_capability_ids", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "origin": { "enum": ["documented", "inferred"] },
+        "kind": { "enum": ["layers", "forbidden", "independence", "interface_only", "placement", "shared_mechanism", "acyclic"] },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "source_ref": { "$ref": "#/$defs/CodeRef", "description": "Where the rule is written (documented rules)." },
+        "statistic": { "type": "string", "description": "Inferred rules: the evidence count, e.g. '41 of 43 calls into payments go through payments.api'." },
+        "scope_capability_ids": { "$ref": "#/$defs/Ids" },
+        "exception_count": { "type": "integer", "minimum": 0, "description": "Known exceptions recorded for this rule (e.g. import-linter ignore_imports entries)." },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "origin": { "const": "documented" } } }, "then": { "required": ["source_ref"] } },
+        { "if": { "properties": { "origin": { "const": "inferred" } } }, "then": { "required": ["statistic"] } }
+      ]
+    },
+    "Interface": {
+      "description": "A contract other code depends on. outer = used directly by users/clients (public HTTP API, web app routes, published SDK/package exports, outbound formats); middle = between capabilities inside the system (module APIs, task signatures, internal events, import contracts). Inner implementation is not listed.",
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["ring", "kind", "capability_id", "detected_by", "refs"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "ring": { "enum": ["outer", "middle"] },
+        "kind": { "enum": ["http_api", "web_route", "sdk_export", "outbound_format", "module_api", "task", "event"] },
+        "capability_id": { "$ref": "#/$defs/Id" },
+        "entry_point_id": { "$ref": "#/$defs/Id", "description": "When the interface is an entry point (e.g. an API route)." },
+        "detected_by": { "enum": ["static", "config"], "description": "config = declared in the repo's .pr-explorer.yml (overrides static detection)." },
+        "refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CodeRef" } }
+      }
+    },
+    "Flow": {
+      "allOf": [{ "$ref": "#/$defs/Named" }],
+      "unevaluatedProperties": false,
+      "required": ["entry_point_id", "capability_ids", "entity_ids", "timeline"],
+      "properties": {
+        "id": true, "technical_name": true, "business_name": true, "description": true, "evidence_refs": true,
+        "entry_point_id": { "$ref": "#/$defs/Id" },
+        "capability_ids": { "$ref": "#/$defs/Ids" },
+        "entity_ids": { "$ref": "#/$defs/Ids" },
+        "timeline": { "$ref": "#/$defs/Timeline" },
+        "phases": { "type": "array", "items": { "$ref": "#/$defs/Phase" }, "description": "Absent without Claude; the UI then segments by capability." }
+      }
+    },
+
+    "SystemMap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "analyzer_version", "system_map_id", "generated_at", "repo", "commit_sha",
+                   "system", "coverage", "domains", "capabilities", "entities", "entry_points", "components", "relations", "flows",
+                   "flow_budget", "architecture_rules", "interfaces", "evidence", "semantic", "disclaimer"],
+      "properties": {
+        "kind": { "const": "system_map" },
+        "schema_version": { "const": "2.2.0" },
+        "analyzer_version": { "$ref": "#/$defs/Version" },
+        "system_map_id": { "$ref": "#/$defs/Id" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "repo": {
+          "type": "object", "additionalProperties": false, "required": ["name"],
+          "properties": { "owner": { "type": "string" }, "name": { "type": "string", "minLength": 1 } }
+        },
+        "commit_sha": { "$ref": "#/$defs/Sha" },
+        "system": {
+          "type": "object", "additionalProperties": false, "required": ["technical_name"],
+          "properties": { "technical_name": { "type": "string" }, "summary": { "$ref": "#/$defs/Text" } }
+        },
+        "coverage": { "type": "array", "items": { "$ref": "#/$defs/Coverage" } },
+        "domains": { "type": "array", "items": { "$ref": "#/$defs/Domain" } },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/Capability" } },
+        "entities": { "type": "array", "items": { "$ref": "#/$defs/Entity" } },
+        "entry_points": { "type": "array", "items": { "$ref": "#/$defs/EntryPoint" } },
+        "components": { "type": "array", "items": { "$ref": "#/$defs/Component" } },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/Relation" } },
+        "flows": { "type": "array", "items": { "$ref": "#/$defs/Flow" } },
+        "architecture_rules": { "type": "array", "items": { "$ref": "#/$defs/ArchRule" } },
+        "interfaces": { "type": "array", "items": { "$ref": "#/$defs/Interface" } },
+        "flow_budget": {
+          "description": "Full timelines exist only for a bounded set of flows; the rest are listed as entry points.",
+          "type": "object", "additionalProperties": false, "required": ["entry_points_total", "flows_built"],
+          "properties": { "entry_points_total": { "type": "integer", "minimum": 0 }, "flows_built": { "type": "integer", "minimum": 0 } }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } },
+        "semantic": { "$ref": "#/$defs/SemanticStatus" },
+        "disclaimer": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "PullRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "title", "body", "repo", "base_ref", "head_ref", "base_sha", "head_sha", "merge_base_sha"],
+      "properties": {
+        "source": { "enum": ["github", "local"] },
+        "url": { "type": "string" },
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "author": { "type": "string" },
+        "repo": {
+          "type": "object", "additionalProperties": false, "required": ["name"],
+          "properties": { "owner": { "type": "string" }, "name": { "type": "string", "minLength": 1 } }
+        },
+        "base_ref": { "type": "string" },
+        "head_ref": { "type": "string" },
+        "base_sha": { "$ref": "#/$defs/Sha" },
+        "head_sha": { "$ref": "#/$defs/Sha" },
+        "merge_base_sha": { "$ref": "#/$defs/Sha", "description": "The system map is built at this commit; 'base' CodeRefs resolve here." }
+      }
+    },
+    "ChangedFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "path", "status", "language", "additions", "deletions", "capability_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "path": { "type": "string" },
+        "old_path": { "type": "string" },
+        "status": { "enum": ["added", "modified", "removed", "renamed"] },
+        "language": { "type": "string" },
+        "additions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 },
+        "capability_id": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }], "description": "null when the file belongs to no capability (e.g. CI config)." }
+      }
+    },
+    "Impact": {
+      "description": "Change/impact status of one map element. Elements not listed are unchanged and not impacted.",
+      "type": "object", "additionalProperties": false,
+      "required": ["target_id", "target_kind", "change_status", "impact_status", "evidence_refs"],
+      "properties": {
+        "target_id": { "$ref": "#/$defs/Id" },
+        "target_kind": { "enum": ["capability", "entity", "entry_point", "component", "flow"] },
+        "change_status": { "enum": ["added", "modified", "removed", "unchanged"] },
+        "impact_status": { "enum": ["direct", "confirmed_dependency", "evidence_supported", "potential", "unknown"] },
+        "impact_depth": { "type": "integer", "minimum": 0 },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "OverlayStep": {
+      "allOf": [{ "$ref": "#/$defs/StepFields" }],
+      "unevaluatedProperties": false,
+      "required": ["step_change_status"],
+      "properties": {
+        "step_change_status": { "enum": ["added", "removed", "changed", "unchanged"], "description": "Before view = all but added; after view = all but removed." }
+      }
+    },
+    "FlowChange": {
+      "type": "object", "additionalProperties": false,
+      "required": ["flow_id", "change_status", "mode", "steps", "evidence_refs"],
+      "properties": {
+        "flow_id": { "$ref": "#/$defs/Id", "description": "A flow in the system map, or in head_additions.flows when the PR adds it." },
+        "change_status": { "enum": ["added", "modified", "removed"] },
+        "mode": { "enum": ["animation", "static_flow"] },
+        "mode_reason": { "type": "string" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/OverlayStep" } },
+        "phases": { "type": "array", "items": { "$ref": "#/$defs/Phase" }, "description": "Phases over the merged step list; absent without Claude." },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "BehaviorChange": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "after", "flow_ids", "capability_ids"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "before": { "$ref": "#/$defs/Text" },
+        "after": { "$ref": "#/$defs/Text" },
+        "flow_ids": { "$ref": "#/$defs/Ids" },
+        "capability_ids": { "$ref": "#/$defs/Ids" }
+      }
+    },
+    "Finding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "source", "title", "description", "severity", "status", "changed_file_ids", "capability_ids", "refs", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "source": { "enum": ["static", "semantic"] },
+        "rule": { "type": "string" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "business_impact": { "type": "string", "description": "Which capability/flow is affected, in business terms." },
+        "severity": { "enum": ["info", "attention", "warning"] },
+        "status": { "enum": ["verified", "needs_confirmation"] },
+        "changed_file_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } },
+        "capability_ids": { "$ref": "#/$defs/Ids" },
+        "flow_ids": { "$ref": "#/$defs/Ids" },
+        "refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CodeRef" } },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      },
+      "if": { "properties": { "source": { "const": "semantic" } } },
+      "then": { "properties": { "status": { "const": "needs_confirmation" } } }
+    },
+    "ArchCheck": {
+      "description": "Architecture consistency of this PR (spec §8). verified = a documented or inferred rule decided statically; Claude hypotheses are always needs_confirmation.",
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "origin", "source", "check", "ring", "verdict", "status", "title", "description", "capability_ids", "pr_refs", "existing_refs", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "rule_id": { "$ref": "#/$defs/Id", "description": "The ArchRule in the system map this check applies (absent for hypotheses)." },
+        "origin": { "enum": ["documented", "inferred", "observed", "hypothesis"], "description": "observed = an interface change seen directly in the diff (no rule needed)." },
+        "source": { "enum": ["static", "semantic"] },
+        "check": { "enum": ["interface_change", "dependency_direction", "interface", "placement", "shared_mechanism", "new_debt", "cycle"] },
+        "ring": { "enum": ["outer", "middle", "inner"], "description": "Outermost ring this check concerns; the UI orders checks outer → inner." },
+        "interface_change": {
+          "type": "object", "additionalProperties": false,
+          "required": ["interface_id", "change", "compatibility", "detail"],
+          "properties": {
+            "interface_id": { "$ref": "#/$defs/Id" },
+            "change": { "enum": ["added", "modified", "removed"] },
+            "compatibility": { "enum": ["compatible", "breaking", "unknown"], "description": "added → compatible; modified/removed → breaking when statically certain (e.g. field removed, route removed, new required param), else unknown." },
+            "detail": { "type": "string", "minLength": 1 }
+          }
+        },
+        "verdict": { "enum": ["follows", "violates", "new_debt", "unclear"] },
+        "status": { "enum": ["verified", "needs_confirmation"] },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "business_impact": { "type": "string" },
+        "capability_ids": { "$ref": "#/$defs/Ids" },
+        "violating_relation": {
+          "type": "object", "additionalProperties": false, "required": ["source", "target"],
+          "properties": { "source": { "$ref": "#/$defs/Id" }, "target": { "$ref": "#/$defs/Id" } },
+          "description": "The capability→capability dependency the PR adds or changes that breaks the rule; drawn highlighted on the map."
+        },
+        "pr_refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } },
+        "existing_refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" }, "description": "Examples of the established way elsewhere in the repo." },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "source": { "const": "semantic" } } }, "then": { "properties": { "origin": { "const": "hypothesis" }, "status": { "const": "needs_confirmation" } } } },
+        { "if": { "properties": { "origin": { "const": "hypothesis" } } }, "then": { "properties": { "status": { "const": "needs_confirmation" } } } },
+        { "if": { "properties": { "origin": { "enum": ["documented", "inferred"] }, "check": { "not": { "const": "interface_change" } } } }, "then": { "required": ["rule_id"] } },
+        { "if": { "properties": { "check": { "const": "interface_change" } } }, "then": { "required": ["interface_change"] } }
+      ]
+    },
+    "WalkTarget": {
+      "type": "object", "additionalProperties": false, "required": ["view"],
+      "properties": {
+        "view": { "enum": ["system", "overlay", "flow", "findings", "architecture", "evidence"] },
+        "capability_ids": { "$ref": "#/$defs/Ids" },
+        "flow_id": { "$ref": "#/$defs/Id" },
+        "finding_id": { "$ref": "#/$defs/Id" }
+      }
+    },
+    "Walkthrough": {
+      "description": "Pre-generated guide in spec v2 §9 order. Questions outside this set show 'insufficient data'.",
+      "type": "object", "additionalProperties": false, "required": ["steps", "questions"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "title", "body", "target"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "title": { "type": "string" },
+              "body": { "$ref": "#/$defs/Text" },
+              "target": { "$ref": "#/$defs/WalkTarget" }
+            }
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "question", "answer", "target"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "question": { "type": "string" },
+              "answer": { "$ref": "#/$defs/Text" },
+              "target": { "$ref": "#/$defs/WalkTarget" }
+            }
+          }
+        }
+      }
+    },
+
+    "PrOverlay": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "analyzer_version", "overlay_id", "system_map_id", "generated_at", "pr", "coverage",
+                   "changes", "purpose", "behavior_changes", "impacts", "flow_changes", "head_additions",
+                   "findings", "architecture_checks", "evidence", "semantic", "walkthrough"],
+      "properties": {
+        "kind": { "const": "pr_overlay" },
+        "schema_version": { "const": "2.2.0" },
+        "analyzer_version": { "$ref": "#/$defs/Version" },
+        "overlay_id": { "$ref": "#/$defs/Id" },
+        "system_map_id": { "$ref": "#/$defs/Id" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "pr": { "$ref": "#/$defs/PullRequest" },
+        "coverage": { "type": "array", "items": { "$ref": "#/$defs/Coverage" } },
+        "changes": {
+          "type": "object", "additionalProperties": false, "required": ["files"],
+          "properties": { "files": { "type": "array", "items": { "$ref": "#/$defs/ChangedFile" } } }
+        },
+        "purpose": { "$ref": "#/$defs/Text" },
+        "design_rationale": { "$ref": "#/$defs/Text" },
+        "behavior_changes": { "type": "array", "items": { "$ref": "#/$defs/BehaviorChange" } },
+        "impacts": { "type": "array", "items": { "$ref": "#/$defs/Impact" } },
+        "flow_changes": { "type": "array", "items": { "$ref": "#/$defs/FlowChange" } },
+        "head_additions": {
+          "description": "Map elements that exist only on the PR head (e.g. a new app, model or route).",
+          "type": "object", "additionalProperties": false,
+          "required": ["capabilities", "entities", "entry_points", "components", "relations", "flows", "interfaces"],
+          "properties": {
+            "capabilities": { "type": "array", "items": { "$ref": "#/$defs/Capability" } },
+            "entities": { "type": "array", "items": { "$ref": "#/$defs/Entity" } },
+            "entry_points": { "type": "array", "items": { "$ref": "#/$defs/EntryPoint" } },
+            "components": { "type": "array", "items": { "$ref": "#/$defs/Component" } },
+            "relations": { "type": "array", "items": { "$ref": "#/$defs/Relation" } },
+            "flows": { "type": "array", "items": { "$ref": "#/$defs/Flow" } },
+            "interfaces": { "type": "array", "items": { "$ref": "#/$defs/Interface" } }
+          }
+        },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+        "architecture_checks": { "type": "array", "items": { "$ref": "#/$defs/ArchCheck" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } },
+        "semantic": { "$ref": "#/$defs/SemanticStatus" },
+        "walkthrough": { "$ref": "#/$defs/Walkthrough" }
+      }
+    }
+  }
+}

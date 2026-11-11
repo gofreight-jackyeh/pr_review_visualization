@@ -1,0 +1,1691 @@
+{
+  "kind": "pr_overlay",
+  "schema_version": "2.2.0",
+  "analyzer_version": "2.2.0-fixture",
+  "overlay_id": "ov_sample_nosemantic",
+  "system_map_id": "sm_sample_nosemantic",
+  "generated_at": "2026-11-11T09:05:00Z",
+  "pr": {
+    "source": "github",
+    "url": "https://github.com/acme/shop/pull/482",
+    "number": 482,
+    "title": "Add discount code to checkout",
+    "body": "顧客可以在結帳時輸入折扣碼。新增 DiscountCode model 與 audit app，扣款改用折扣後金額，並移除固定 10% 會員折扣。",
+    "author": "dev",
+    "repo": {
+      "owner": "acme",
+      "name": "shop"
+    },
+    "base_ref": "main",
+    "head_ref": "feature/discount-code",
+    "base_sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "head_sha": "f0e1d2c3b4a5968778695a4b3c2d1e0f98765432",
+    "merge_base_sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+  },
+  "coverage": [
+    {
+      "language": "python",
+      "level": "deep",
+      "file_count": 64
+    },
+    {
+      "language": "markdown",
+      "level": "generic",
+      "file_count": 4
+    }
+  ],
+  "changes": {
+    "files": [
+      {
+        "id": "cf:orders-views",
+        "path": "app/orders/views.py",
+        "status": "modified",
+        "language": "python",
+        "additions": 38,
+        "deletions": 6,
+        "capability_id": "cap:orders"
+      },
+      {
+        "id": "cf:orders-models",
+        "path": "app/orders/models.py",
+        "status": "modified",
+        "language": "python",
+        "additions": 4,
+        "deletions": 0,
+        "capability_id": "cap:orders"
+      },
+      {
+        "id": "cf:discounts-services",
+        "path": "app/discounts/services.py",
+        "status": "modified",
+        "language": "python",
+        "additions": 52,
+        "deletions": 9,
+        "capability_id": "cap:discounts"
+      },
+      {
+        "id": "cf:discounts-models",
+        "path": "app/discounts/models.py",
+        "status": "modified",
+        "language": "python",
+        "additions": 24,
+        "deletions": 0,
+        "capability_id": "cap:discounts"
+      },
+      {
+        "id": "cf:migration",
+        "path": "app/discounts/migrations/0007_discountcode.py",
+        "status": "added",
+        "language": "python",
+        "additions": 30,
+        "deletions": 0,
+        "capability_id": "cap:discounts"
+      },
+      {
+        "id": "cf:audit",
+        "path": "app/audit/models.py",
+        "status": "added",
+        "language": "python",
+        "additions": 18,
+        "deletions": 0,
+        "capability_id": "cap:audit"
+      },
+      {
+        "id": "cf:payments",
+        "path": "app/payments/services.py",
+        "status": "modified",
+        "language": "python",
+        "additions": 5,
+        "deletions": 2,
+        "capability_id": "cap:payments"
+      },
+      {
+        "id": "cf:receipt",
+        "path": "app/notifications/templates/receipt.txt",
+        "status": "modified",
+        "language": "text",
+        "additions": 3,
+        "deletions": 0,
+        "capability_id": "cap:notifications"
+      },
+      {
+        "id": "cf:ci",
+        "path": ".github/workflows/ci.yml",
+        "status": "modified",
+        "language": "yaml",
+        "additions": 2,
+        "deletions": 0,
+        "capability_id": null
+      },
+      {
+        "id": "cf:importlinter",
+        "path": ".importlinter.ini",
+        "status": "modified",
+        "language": "ini",
+        "additions": 1,
+        "deletions": 0,
+        "capability_id": null
+      }
+    ]
+  },
+  "purpose": {
+    "text": "Add discount code to checkout。顧客可以在結帳時輸入折扣碼。新增 DiscountCode model 與 audit app，扣款改用折扣後金額，並移除固定 10% 會員折扣。",
+    "source": "pr_description",
+    "evidence_refs": [
+      "ev:pr:meta"
+    ]
+  },
+  "behavior_changes": [],
+  "impacts": [
+    {
+      "target_id": "cap:orders",
+      "target_kind": "capability",
+      "change_status": "modified",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:diff:checkout"
+      ]
+    },
+    {
+      "target_id": "cap:discounts",
+      "target_kind": "capability",
+      "change_status": "modified",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:diff:discounts"
+      ]
+    },
+    {
+      "target_id": "cap:audit",
+      "target_kind": "capability",
+      "change_status": "added",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:cap:audit"
+      ]
+    },
+    {
+      "target_id": "ent:discount_code",
+      "target_kind": "entity",
+      "change_status": "added",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:ent:discount_code"
+      ]
+    },
+    {
+      "target_id": "ent:audit_entry",
+      "target_kind": "entity",
+      "change_status": "added",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:ent:audit_entry"
+      ]
+    },
+    {
+      "target_id": "ent:cart",
+      "target_kind": "entity",
+      "change_status": "modified",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:diff:cart"
+      ]
+    },
+    {
+      "target_id": "ep:apply_code",
+      "target_kind": "entry_point",
+      "change_status": "added",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:ep:apply_code"
+      ]
+    },
+    {
+      "target_id": "comp:discounts.validate_code",
+      "target_kind": "component",
+      "change_status": "added",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:comp:validate_code"
+      ]
+    },
+    {
+      "target_id": "flow:checkout",
+      "target_kind": "flow",
+      "change_status": "modified",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:flow:checkout"
+      ]
+    },
+    {
+      "target_id": "flow:apply_code",
+      "target_kind": "flow",
+      "change_status": "added",
+      "impact_status": "direct",
+      "impact_depth": 0,
+      "evidence_refs": [
+        "ev:flow:apply_code"
+      ]
+    },
+    {
+      "target_id": "cap:payments",
+      "target_kind": "capability",
+      "change_status": "unchanged",
+      "impact_status": "confirmed_dependency",
+      "impact_depth": 1,
+      "evidence_refs": [
+        "ev:diff:payments"
+      ]
+    },
+    {
+      "target_id": "cap:inventory",
+      "target_kind": "capability",
+      "change_status": "unchanged",
+      "impact_status": "evidence_supported",
+      "impact_depth": 1,
+      "evidence_refs": [
+        "ev:diff:inventory"
+      ]
+    },
+    {
+      "target_id": "cap:notifications",
+      "target_kind": "capability",
+      "change_status": "unchanged",
+      "impact_status": "potential",
+      "impact_depth": 2,
+      "evidence_refs": [
+        "ev:diff:notifications"
+      ]
+    },
+    {
+      "target_id": "flow:cancel",
+      "target_kind": "flow",
+      "change_status": "unchanged",
+      "impact_status": "potential",
+      "impact_depth": 2,
+      "evidence_refs": [
+        "ev:diff:notifications"
+      ]
+    },
+    {
+      "target_id": "flow:payment_webhook",
+      "target_kind": "flow",
+      "change_status": "unchanged",
+      "impact_status": "unknown",
+      "impact_depth": 2,
+      "evidence_refs": [
+        "ev:diff:payments"
+      ]
+    }
+  ],
+  "flow_changes": [
+    {
+      "flow_id": "flow:checkout",
+      "change_status": "modified",
+      "mode": "animation",
+      "steps": [
+        {
+          "id": "step:checkout:0",
+          "order": 0,
+          "kind": "enter",
+          "capability_id": "cap:orders",
+          "component_ids": [],
+          "technical_label": "進入 checkout_view",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:0"
+          ],
+          "step_change_status": "unchanged"
+        },
+        {
+          "id": "step:checkout:1",
+          "order": 1,
+          "kind": "read",
+          "capability_id": "cap:orders",
+          "entity_id": "ent:cart",
+          "component_ids": [],
+          "technical_label": "讀取 Cart",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:1"
+          ],
+          "step_change_status": "unchanged"
+        },
+        {
+          "id": "step:checkout:2",
+          "order": 2,
+          "kind": "call",
+          "capability_id": "cap:discounts",
+          "entity_id": "ent:promotion",
+          "component_ids": [],
+          "technical_label": "apply_promotions(cart)",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:2"
+          ],
+          "step_change_status": "unchanged"
+        },
+        {
+          "id": "step:checkout:2b",
+          "order": 3,
+          "kind": "read",
+          "capability_id": "cap:discounts",
+          "entity_id": "ent:discount_code",
+          "component_ids": [],
+          "technical_label": "validate_code(cart.code)",
+          "evidence_status": "possible",
+          "evidence_refs": [
+            "ev:diff:discounts"
+          ],
+          "step_change_status": "added",
+          "branch": {
+            "condition": "cart.discount_code is not None"
+          }
+        },
+        {
+          "id": "step:checkout:3",
+          "order": 4,
+          "kind": "call",
+          "capability_id": "cap:discounts",
+          "component_ids": [],
+          "technical_label": "apply_member_discount(cart)",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:3"
+          ],
+          "step_change_status": "removed"
+        },
+        {
+          "id": "step:checkout:4",
+          "order": 5,
+          "kind": "call",
+          "capability_id": "cap:inventory",
+          "entity_id": "ent:stock_item",
+          "component_ids": [],
+          "technical_label": "reserve(items)",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:4"
+          ],
+          "step_change_status": "unchanged"
+        },
+        {
+          "id": "step:checkout:5",
+          "order": 6,
+          "kind": "call",
+          "capability_id": "cap:payments",
+          "entity_id": "ent:payment",
+          "component_ids": [],
+          "technical_label": "charge(cart.total)",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:diff:payments"
+          ],
+          "step_change_status": "changed"
+        },
+        {
+          "id": "step:checkout:6",
+          "order": 7,
+          "kind": "create",
+          "capability_id": "cap:orders",
+          "entity_id": "ent:order",
+          "component_ids": [],
+          "technical_label": "Order.objects.create",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:6"
+          ],
+          "step_change_status": "unchanged"
+        },
+        {
+          "id": "step:checkout:7",
+          "order": 8,
+          "kind": "emit",
+          "capability_id": "cap:notifications",
+          "entity_id": "ent:notification",
+          "component_ids": [],
+          "technical_label": "send_receipt(order)",
+          "evidence_status": "unknown",
+          "evidence_refs": [
+            "ev:step:checkout:7"
+          ],
+          "step_change_status": "unchanged"
+        },
+        {
+          "id": "step:checkout:8",
+          "order": 9,
+          "kind": "call",
+          "capability_id": "cap:core",
+          "component_ids": [],
+          "technical_label": "core.audit_log(order)",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:step:checkout:8"
+          ],
+          "step_change_status": "unchanged"
+        }
+      ],
+      "evidence_refs": [
+        "ev:flow:checkout"
+      ]
+    },
+    {
+      "flow_id": "flow:apply_code",
+      "change_status": "added",
+      "mode": "static_flow",
+      "mode_reason": "折扣碼驗證與稽核之間缺少可靠的執行順序證據",
+      "steps": [
+        {
+          "id": "step:apply_code:0",
+          "order": 0,
+          "kind": "enter",
+          "capability_id": "cap:orders",
+          "component_ids": [],
+          "technical_label": "進入 apply_discount_code view",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:flow:apply_code"
+          ],
+          "step_change_status": "added"
+        },
+        {
+          "id": "step:apply_code:1",
+          "order": 1,
+          "kind": "read",
+          "capability_id": "cap:orders",
+          "entity_id": "ent:cart",
+          "component_ids": [],
+          "technical_label": "讀取 Cart",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:flow:apply_code"
+          ],
+          "step_change_status": "added"
+        },
+        {
+          "id": "step:apply_code:2",
+          "order": 2,
+          "kind": "read",
+          "capability_id": "cap:discounts",
+          "entity_id": "ent:discount_code",
+          "component_ids": [],
+          "technical_label": "validate_code",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:comp:validate_code"
+          ],
+          "step_change_status": "added"
+        },
+        {
+          "id": "step:apply_code:3",
+          "order": 3,
+          "kind": "write",
+          "capability_id": "cap:discounts",
+          "entity_id": "ent:discount_code",
+          "component_ids": [],
+          "technical_label": "code.redeem_count += 1",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:comp:validate_code"
+          ],
+          "step_change_status": "added"
+        },
+        {
+          "id": "step:apply_code:4",
+          "order": 4,
+          "kind": "call",
+          "capability_id": "cap:audit",
+          "entity_id": "ent:audit_entry",
+          "component_ids": [],
+          "technical_label": "audit.record",
+          "evidence_status": "confirmed",
+          "evidence_refs": [
+            "ev:comp:record"
+          ],
+          "step_change_status": "added"
+        }
+      ],
+      "evidence_refs": [
+        "ev:flow:apply_code"
+      ]
+    }
+  ],
+  "head_additions": {
+    "capabilities": [
+      {
+        "id": "cap:audit",
+        "technical_name": "app.audit",
+        "evidence_refs": [
+          "ev:cap:audit"
+        ],
+        "path": "app/audit",
+        "language": "python",
+        "entity_ids": [
+          "ent:audit_entry"
+        ],
+        "entry_point_ids": [],
+        "component_count": 1,
+        "category": "business",
+        "domain_id": "dom:app"
+      }
+    ],
+    "entities": [
+      {
+        "id": "ent:discount_code",
+        "technical_name": "DiscountCode",
+        "evidence_refs": [
+          "ev:ent:discount_code"
+        ],
+        "capability_id": "cap:discounts",
+        "refs": [
+          {
+            "side": "head",
+            "path": "app/discounts/models.py",
+            "start_line": 30
+          }
+        ]
+      },
+      {
+        "id": "ent:audit_entry",
+        "technical_name": "AuditEntry",
+        "evidence_refs": [
+          "ev:ent:audit_entry"
+        ],
+        "capability_id": "cap:audit",
+        "refs": [
+          {
+            "side": "head",
+            "path": "app/audit/models.py",
+            "start_line": 8
+          }
+        ]
+      }
+    ],
+    "entry_points": [
+      {
+        "id": "ep:apply_code",
+        "technical_name": "POST /checkout/discount-code",
+        "evidence_refs": [
+          "ev:ep:apply_code"
+        ],
+        "capability_id": "cap:orders",
+        "kind": "route",
+        "refs": [
+          {
+            "side": "head",
+            "path": "app/orders/urls.py",
+            "start_line": 14
+          }
+        ]
+      }
+    ],
+    "components": [
+      {
+        "id": "comp:discounts.validate_code",
+        "technical_name": "validate_code",
+        "evidence_refs": [
+          "ev:comp:validate_code"
+        ],
+        "capability_id": "cap:discounts",
+        "kind": "function",
+        "refs": [
+          {
+            "side": "head",
+            "path": "app/discounts/services.py",
+            "start_line": 55
+          }
+        ]
+      },
+      {
+        "id": "comp:audit.record",
+        "technical_name": "record",
+        "evidence_refs": [
+          "ev:comp:record"
+        ],
+        "capability_id": "cap:audit",
+        "kind": "function",
+        "refs": [
+          {
+            "side": "head",
+            "path": "app/audit/services.py",
+            "start_line": 6
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "id": "rel:orders-code",
+        "source": "cap:orders",
+        "target": "ent:discount_code",
+        "kind": "uses_entity",
+        "weight": 2,
+        "confidence": "confirmed",
+        "evidence_refs": [
+          "ev:rel:orders-code"
+        ]
+      },
+      {
+        "id": "rel:discounts-audit",
+        "source": "cap:discounts",
+        "target": "cap:audit",
+        "kind": "calls",
+        "weight": 1,
+        "confidence": "confirmed",
+        "evidence_refs": [
+          "ev:rel:discounts-audit"
+        ]
+      },
+      {
+        "id": "rel:discounts-orders",
+        "source": "cap:discounts",
+        "target": "cap:orders",
+        "kind": "calls",
+        "weight": 1,
+        "confidence": "confirmed",
+        "evidence_refs": [
+          "ev:ac:discounts-orders"
+        ]
+      }
+    ],
+    "flows": [
+      {
+        "id": "flow:apply_code",
+        "technical_name": "apply_code",
+        "evidence_refs": [
+          "ev:flow:apply_code"
+        ],
+        "entry_point_id": "ep:apply_code",
+        "capability_ids": [
+          "cap:orders",
+          "cap:discounts",
+          "cap:audit"
+        ],
+        "entity_ids": [
+          "ent:cart",
+          "ent:discount_code",
+          "ent:audit_entry"
+        ],
+        "timeline": {
+          "mode": "static_flow",
+          "mode_reason": "折扣碼驗證與稽核之間缺少可靠的執行順序證據",
+          "steps": [
+            {
+              "id": "step:apply_code:0",
+              "order": 0,
+              "kind": "enter",
+              "capability_id": "cap:orders",
+              "component_ids": [],
+              "technical_label": "進入 apply_discount_code view",
+              "evidence_status": "confirmed",
+              "evidence_refs": [
+                "ev:flow:apply_code"
+              ]
+            },
+            {
+              "id": "step:apply_code:1",
+              "order": 1,
+              "kind": "read",
+              "capability_id": "cap:orders",
+              "entity_id": "ent:cart",
+              "component_ids": [],
+              "technical_label": "讀取 Cart",
+              "evidence_status": "confirmed",
+              "evidence_refs": [
+                "ev:flow:apply_code"
+              ]
+            },
+            {
+              "id": "step:apply_code:2",
+              "order": 2,
+              "kind": "read",
+              "capability_id": "cap:discounts",
+              "entity_id": "ent:discount_code",
+              "component_ids": [],
+              "technical_label": "validate_code",
+              "evidence_status": "confirmed",
+              "evidence_refs": [
+                "ev:comp:validate_code"
+              ]
+            },
+            {
+              "id": "step:apply_code:3",
+              "order": 3,
+              "kind": "write",
+              "capability_id": "cap:discounts",
+              "entity_id": "ent:discount_code",
+              "component_ids": [],
+              "technical_label": "code.redeem_count += 1",
+              "evidence_status": "confirmed",
+              "evidence_refs": [
+                "ev:comp:validate_code"
+              ]
+            },
+            {
+              "id": "step:apply_code:4",
+              "order": 4,
+              "kind": "call",
+              "capability_id": "cap:audit",
+              "entity_id": "ent:audit_entry",
+              "component_ids": [],
+              "technical_label": "audit.record",
+              "evidence_status": "confirmed",
+              "evidence_refs": [
+                "ev:comp:record"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "interfaces": [
+      {
+        "id": "if:apply-code",
+        "technical_name": "POST /checkout/discount-code",
+        "evidence_refs": [
+          "ev:if:apply-code"
+        ],
+        "ring": "outer",
+        "kind": "http_api",
+        "capability_id": "cap:orders",
+        "entry_point_id": "ep:apply_code",
+        "detected_by": "static",
+        "refs": [
+          {
+            "side": "head",
+            "path": "app/orders/urls.py",
+            "start_line": 14
+          }
+        ]
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "fd:race",
+      "source": "static",
+      "rule": "non-atomic-update",
+      "title": "折扣碼使用次數的更新沒有包在交易裡",
+      "description": "redeem_count 先讀再寫，沒有 select_for_update 或原子更新。",
+      "business_impact": "同一個折扣碼在並發結帳時可能超過使用上限。",
+      "severity": "warning",
+      "status": "verified",
+      "changed_file_ids": [
+        "cf:discounts-services"
+      ],
+      "capability_ids": [
+        "cap:discounts"
+      ],
+      "flow_ids": [
+        "flow:apply_code",
+        "flow:checkout"
+      ],
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/services.py",
+          "start_line": 61
+        }
+      ],
+      "evidence_refs": [
+        "ev:diff:discounts"
+      ]
+    },
+    {
+      "id": "fd:migration",
+      "source": "static",
+      "rule": "irreversible-migration",
+      "title": "新增的 migration 沒有 reverse 步驟",
+      "description": "0007_discountcode 只有 CreateModel，缺少回滾說明。",
+      "business_impact": "上線後若要回退，折扣功能的資料表需手動處理。",
+      "severity": "info",
+      "status": "verified",
+      "changed_file_ids": [
+        "cf:migration"
+      ],
+      "capability_ids": [
+        "cap:discounts"
+      ],
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/migrations/0007_discountcode.py",
+          "start_line": 1
+        }
+      ],
+      "evidence_refs": [
+        "ev:diff:migration"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev:pr:meta",
+      "kind": "pr_metadata",
+      "description": "PR 標題與描述",
+      "refs": [],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:discount_code",
+      "kind": "diff",
+      "description": "DiscountCode 是新增的 ORM model",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/models.py",
+          "start_line": 30
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:cap:audit",
+      "kind": "diff",
+      "description": "app/audit 是新增的 Django app",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/audit/apps.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:audit_entry",
+      "kind": "diff",
+      "description": "AuditEntry 是新增的 ORM model",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/audit/models.py",
+          "start_line": 8
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:apply_code",
+      "kind": "framework_rule",
+      "description": "新增路由 POST /checkout/discount-code",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/urls.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:validate_code",
+      "kind": "diff",
+      "description": "validate_code 新增於 discounts services",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/services.py",
+          "start_line": 55
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:record",
+      "kind": "diff",
+      "description": "audit.record 新增",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/audit/services.py",
+          "start_line": 6
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:orders-code",
+      "kind": "import",
+      "description": "checkout_view 現在讀取 DiscountCode",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 52
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:discounts-audit",
+      "kind": "import",
+      "description": "validate_code 呼叫 audit.record",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/services.py",
+          "start_line": 71
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:checkout",
+      "kind": "diff",
+      "description": "checkout_view 新增折扣碼處理",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 47
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:discounts",
+      "kind": "diff",
+      "description": "services.py 新增 validate_code 與 redeem",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/services.py",
+          "start_line": 55
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:payments",
+      "kind": "diff",
+      "description": "charge 現在接收折扣後金額",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/payments/services.py",
+          "start_line": 18
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:inventory",
+      "kind": "diff",
+      "description": "reserve 在折扣驗證之後才被呼叫",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/inventory/services.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:notifications",
+      "kind": "diff",
+      "description": "收據模板讀取 order.discount_total",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 4
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:cart",
+      "kind": "diff",
+      "description": "Cart 新增 discount_code 欄位",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/models.py",
+          "start_line": 20
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:diff:migration",
+      "kind": "diff",
+      "description": "新增 migration 0007_discountcode",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/migrations/0007_discountcode.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:checkout",
+      "kind": "framework_rule",
+      "description": "checkout 流程在 head 的步驟",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 31
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:apply_code",
+      "kind": "framework_rule",
+      "description": "apply_code 流程",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 90
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:discounts-orders",
+      "kind": "diff",
+      "description": "新增 import app.orders.models",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:il-ignore",
+      "kind": "diff",
+      "description": "ignore_imports 新增一筆",
+      "refs": [
+        {
+          "side": "head",
+          "path": ".importlinter.ini",
+          "start_line": 9
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:payments-api",
+      "kind": "diff",
+      "description": "直接呼叫 stripe_charge",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 52
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:notify",
+      "kind": "diff",
+      "description": "收據範本修改",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:apply-code",
+      "kind": "ast",
+      "description": "POST /checkout/discount-code 是對外的介面",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/urls.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:if-cancel",
+      "kind": "diff",
+      "description": "取消訂單的回應移除並改名欄位",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 97
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:if-receipt",
+      "kind": "diff",
+      "description": "收據通知內容有改動",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:if-checkout",
+      "kind": "diff",
+      "description": "結帳回應新增選填欄位",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 47
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:if-apply",
+      "kind": "diff",
+      "description": "新增套用折扣碼的 API",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/orders/urls.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ac:if-charge",
+      "kind": "diff",
+      "description": "扣款介面新增必填參數",
+      "refs": [
+        {
+          "side": "head",
+          "path": "app/payments/services.py",
+          "start_line": 50
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    }
+  ],
+  "semantic": {
+    "status": "skipped",
+    "tier": "none",
+    "decision": {
+      "score": 0,
+      "reasons": [
+        "semantic_mode=off"
+      ],
+      "mode": "off"
+    }
+  },
+  "walkthrough": {
+    "steps": [
+      {
+        "id": "wt:1",
+        "title": "這個系統是做什麼的",
+        "body": {
+          "text": "系統由 5 個 app 組成：orders、discounts、payments、inventory、notifications。",
+          "source": "static",
+          "evidence_refs": [
+            "ev:system"
+          ]
+        },
+        "target": {
+          "view": "system"
+        }
+      },
+      {
+        "id": "wt:2",
+        "title": "系統由哪些業務能力組成",
+        "body": {
+          "text": "app.orders 呼叫 discounts、inventory、payments、notifications。",
+          "source": "static",
+          "evidence_refs": [
+            "ev:pr:meta"
+          ]
+        },
+        "target": {
+          "view": "system",
+          "capability_ids": [
+            "cap:orders",
+            "cap:discounts",
+            "cap:payments",
+            "cap:inventory",
+            "cap:notifications"
+          ]
+        }
+      },
+      {
+        "id": "wt:3",
+        "title": "與這次修改相關的業務流程",
+        "body": {
+          "text": "flow checkout 被修改，新增 flow apply_code。",
+          "source": "static",
+          "evidence_refs": [
+            "ev:flow:checkout"
+          ]
+        },
+        "target": {
+          "view": "flow",
+          "flow_id": "flow:checkout"
+        }
+      },
+      {
+        "id": "wt:4",
+        "title": "這個 PR 改變了什麼業務行為",
+        "body": {
+          "text": "checkout_view 與 charge 被修改。",
+          "source": "static",
+          "evidence_refs": [
+            "ev:diff:checkout"
+          ]
+        },
+        "target": {
+          "view": "overlay",
+          "capability_ids": [
+            "cap:orders",
+            "cap:discounts",
+            "cap:audit"
+          ]
+        }
+      },
+      {
+        "id": "wt:5",
+        "title": "可能受影響的其他業務功能",
+        "body": {
+          "text": "payments、inventory 為相依；notifications 為潛在影響。",
+          "source": "static",
+          "evidence_refs": [
+            "ev:diff:payments"
+          ]
+        },
+        "target": {
+          "view": "overlay",
+          "capability_ids": [
+            "cap:payments",
+            "cap:inventory",
+            "cap:notifications"
+          ]
+        }
+      },
+      {
+        "id": "wt:6",
+        "title": "需要確認的問題",
+        "body": {
+          "text": "靜態分析找到 2 項可驗證的問題。",
+          "source": "static",
+          "evidence_refs": [
+            "ev:diff:discounts"
+          ]
+        },
+        "target": {
+          "view": "findings",
+          "finding_id": "fd:race"
+        }
+      }
+    ],
+    "questions": []
+  },
+  "architecture_checks": [
+    {
+      "id": "ac:if-cancel",
+      "origin": "observed",
+      "source": "static",
+      "check": "interface_change",
+      "ring": "outer",
+      "interface_change": {
+        "interface_id": "if:cancel",
+        "change": "modified",
+        "compatibility": "breaking",
+        "detail": "回應移除欄位 refund_status，並把 reason 改名為 cancel_reason；依賴舊欄位的客戶端會壞掉。"
+      },
+      "verdict": "violates",
+      "status": "verified",
+      "title": "取消訂單的回應移除並改名欄位",
+      "description": "回應移除欄位 refund_status，並把 reason 改名為 cancel_reason；依賴舊欄位的客戶端會壞掉。",
+      "capability_ids": [
+        "cap:orders"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 97
+        }
+      ],
+      "existing_refs": [],
+      "evidence_refs": [
+        "ev:ac:if-cancel"
+      ]
+    },
+    {
+      "id": "ac:if-receipt",
+      "origin": "observed",
+      "source": "static",
+      "check": "interface_change",
+      "ring": "outer",
+      "interface_change": {
+        "interface_id": "if:receipt-format",
+        "change": "modified",
+        "compatibility": "unknown",
+        "detail": "收據文字範本內容有改動；客戶端或信件解析是否依賴原格式，靜態分析無法判定。"
+      },
+      "verdict": "unclear",
+      "status": "needs_confirmation",
+      "title": "收據通知內容有改動",
+      "description": "收據文字範本內容有改動；客戶端或信件解析是否依賴原格式，靜態分析無法判定。",
+      "capability_ids": [
+        "cap:notifications"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 3
+        }
+      ],
+      "existing_refs": [],
+      "evidence_refs": [
+        "ev:ac:if-receipt"
+      ]
+    },
+    {
+      "id": "ac:if-checkout",
+      "origin": "observed",
+      "source": "static",
+      "check": "interface_change",
+      "ring": "outer",
+      "interface_change": {
+        "interface_id": "if:checkout",
+        "change": "modified",
+        "compatibility": "compatible",
+        "detail": "回應新增選填欄位 discount_total，既有欄位不變。"
+      },
+      "verdict": "follows",
+      "status": "verified",
+      "title": "結帳回應新增選填欄位",
+      "description": "回應新增選填欄位 discount_total，既有欄位不變。",
+      "capability_ids": [
+        "cap:orders"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 47
+        }
+      ],
+      "existing_refs": [],
+      "evidence_refs": [
+        "ev:ac:if-checkout"
+      ]
+    },
+    {
+      "id": "ac:if-apply",
+      "origin": "observed",
+      "source": "static",
+      "check": "interface_change",
+      "ring": "outer",
+      "interface_change": {
+        "interface_id": "if:apply-code",
+        "change": "added",
+        "compatibility": "compatible",
+        "detail": "新增路由 POST /checkout/discount-code；既有路由不受影響。"
+      },
+      "verdict": "follows",
+      "status": "verified",
+      "title": "新增套用折扣碼的 API",
+      "description": "新增路由 POST /checkout/discount-code；既有路由不受影響。",
+      "capability_ids": [
+        "cap:orders"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/orders/urls.py",
+          "start_line": 14
+        }
+      ],
+      "existing_refs": [],
+      "evidence_refs": [
+        "ev:ac:if-apply"
+      ]
+    },
+    {
+      "id": "ac:if-charge",
+      "origin": "observed",
+      "source": "static",
+      "check": "interface_change",
+      "ring": "middle",
+      "interface_change": {
+        "interface_id": "if:payments-charge",
+        "change": "modified",
+        "compatibility": "breaking",
+        "detail": "charge() 新增必填參數 idempotency_key；其他能力的既有呼叫會缺參數。"
+      },
+      "verdict": "violates",
+      "status": "verified",
+      "title": "扣款介面新增必填參數",
+      "description": "charge() 新增必填參數 idempotency_key；其他能力的既有呼叫會缺參數。",
+      "capability_ids": [
+        "cap:payments"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/payments/services.py",
+          "start_line": 50
+        }
+      ],
+      "existing_refs": [],
+      "evidence_refs": [
+        "ev:ac:if-charge"
+      ]
+    },
+    {
+      "id": "ac:discounts-orders",
+      "rule_id": "rule:il:discounts-independent",
+      "origin": "documented",
+      "source": "static",
+      "check": "dependency_direction",
+      "verdict": "violates",
+      "status": "verified",
+      "title": "折扣新增了對訂單的直接依賴",
+      "description": "app/discounts/services.py 新增 from app.orders.models import Cart，違反 import-linter 契約 discounts-independent。",
+      "business_impact": "折扣規則與訂單綁在一起，之後修改訂單可能連帶影響折扣計算。",
+      "capability_ids": [
+        "cap:discounts",
+        "cap:orders"
+      ],
+      "violating_relation": {
+        "source": "cap:discounts",
+        "target": "cap:orders"
+      },
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/discounts/services.py",
+          "start_line": 3
+        }
+      ],
+      "existing_refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 24
+        }
+      ],
+      "evidence_refs": [
+        "ev:ac:discounts-orders"
+      ],
+      "ring": "middle"
+    },
+    {
+      "id": "ac:il-ignore",
+      "rule_id": "rule:il:layers",
+      "origin": "documented",
+      "source": "static",
+      "check": "new_debt",
+      "verdict": "new_debt",
+      "status": "verified",
+      "title": "在 import-linter 例外清單新增一筆",
+      "description": "PR 在 .importlinter.ini 的 ignore_imports 加入 app.orders.models -> app.discounts.services。",
+      "capability_ids": [
+        "cap:orders",
+        "cap:discounts"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": ".importlinter.ini",
+          "start_line": 9
+        }
+      ],
+      "existing_refs": [],
+      "evidence_refs": [
+        "ev:ac:il-ignore"
+      ],
+      "ring": "middle"
+    },
+    {
+      "id": "ac:payments-api",
+      "rule_id": "rule:inf:payments-api",
+      "origin": "inferred",
+      "source": "static",
+      "check": "interface",
+      "verdict": "violates",
+      "status": "verified",
+      "title": "訂單直接呼叫金流 gateway",
+      "description": "app/orders/views.py 直接呼叫 app.payments.gateway.stripe_charge；其他地方都透過 payments.services.charge。",
+      "business_impact": "扣款繞過付款的對外介面，付款端的重試與記錄規則可能沒有套用。",
+      "capability_ids": [
+        "cap:orders",
+        "cap:payments"
+      ],
+      "violating_relation": {
+        "source": "cap:orders",
+        "target": "cap:payments"
+      },
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/orders/views.py",
+          "start_line": 52
+        }
+      ],
+      "existing_refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 31
+        },
+        {
+          "side": "base",
+          "path": "app/payments/refunds/services.py",
+          "start_line": 8
+        }
+      ],
+      "evidence_refs": [
+        "ev:ac:payments-api"
+      ],
+      "ring": "middle"
+    },
+    {
+      "id": "ac:notify",
+      "rule_id": "rule:inf:notify",
+      "origin": "inferred",
+      "source": "static",
+      "check": "shared_mechanism",
+      "verdict": "follows",
+      "status": "verified",
+      "title": "收據通知沿用 notifications.api",
+      "description": "收據範本的變更仍由 notifications.api 寄送。",
+      "capability_ids": [
+        "cap:notifications"
+      ],
+      "pr_refs": [
+        {
+          "side": "head",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 1
+        }
+      ],
+      "existing_refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 40
+        }
+      ],
+      "evidence_refs": [
+        "ev:ac:notify"
+      ],
+      "ring": "inner"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{ "compilerOptions": { "baseUrl": ".", "paths": { "@lib/*": ["src/lib/*"] }, "jsx": "preserve", "allowJs": true, "strict": true } }

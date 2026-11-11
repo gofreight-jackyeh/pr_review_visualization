@@ -1,0 +1,6 @@
+Third-party notices
+
+elkjs (https://github.com/kieler/elkjs) is bundled into the frontend build for graph layout.
+It is licensed under EPL-2.0 OR GPL-3.0-or-later. Other dependencies keep their own
+licenses; see the lockfiles (backend/uv.lock, frontend/pnpm-lock.yaml,
+tools/ts-analyzer/pnpm-lock.yaml).

@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pr-explorer.local/schemas/artifact/v1/artifact.schema.json",
+  "title": "PR Review Explorer Visualization Artifact",
+  "description": "Single source of truth shared by backend (producer) and frontend (consumer). Every model shares stable IDs and evidence references (spec §6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "analyzer_version", "artifact_id", "generated_at", "pr",
+    "capabilities", "changes", "graph", "scenarios", "timelines",
+    "findings", "conventions", "evidence", "semantic", "walkthrough"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "analyzer_version": { "type": "string", "minLength": 1 },
+    "artifact_id": { "$ref": "#/$defs/Id" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "pr": { "$ref": "#/$defs/PullRequest" },
+    "capabilities": { "type": "array", "items": { "$ref": "#/$defs/Capability" } },
+    "changes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files"],
+      "properties": { "files": { "type": "array", "items": { "$ref": "#/$defs/ChangedFile" } } }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/Node" } },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/Edge" } }
+      }
+    },
+    "scenarios": { "type": "array", "items": { "$ref": "#/$defs/Scenario" } },
+    "timelines": { "type": "array", "items": { "$ref": "#/$defs/Timeline" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+    "conventions": { "type": "array", "items": { "$ref": "#/$defs/Convention" } },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } },
+    "semantic": { "$ref": "#/$defs/Semantic" },
+    "walkthrough": { "$ref": "#/$defs/Walkthrough" }
+  },
+  "$defs": {
+    "Id": {
+      "description": "Stable ID. Deterministic from content (e.g. 'node:py:app/views.py::OrderView.post'), identical across base/head so layouts stay stable.",
+      "type": "string", "minLength": 1, "maxLength": 512
+    },
+    "Side": { "enum": ["base", "head"] },
+    "Sha": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+    "Source": {
+      "description": "Who produced an item. 'semantic' = Claude; it never produces graph structure.",
+      "enum": ["static", "semantic"]
+    },
+    "CodeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["side", "path", "start_line"],
+      "properties": {
+        "side": { "$ref": "#/$defs/Side" },
+        "path": { "type": "string", "minLength": 1 },
+        "start_line": { "type": "integer", "minimum": 1 },
+        "end_line": { "type": "integer", "minimum": 1 },
+        "symbol": { "type": "string" }
+      }
+    },
+    "PullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "title", "body", "repo", "base_ref", "head_ref", "base_sha", "head_sha", "merge_base_sha"],
+      "properties": {
+        "source": { "enum": ["github", "local"] },
+        "url": { "type": "string" },
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "author": { "type": "string" },
+        "repo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "owner": { "type": "string" },
+            "name": { "type": "string", "minLength": 1 }
+          }
+        },
+        "base_ref": { "type": "string" },
+        "head_ref": { "type": "string" },
+        "base_sha": { "$ref": "#/$defs/Sha" },
+        "head_sha": { "$ref": "#/$defs/Sha" },
+        "merge_base_sha": { "$ref": "#/$defs/Sha", "description": "The 'base' side of every CodeRef resolves to this commit." }
+      }
+    },
+    "Capability": {
+      "description": "Analysis depth per language, so unsupported analysis renders as Partial/Unknown instead of guesses (spec §13 Quality).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "level", "file_count"],
+      "properties": {
+        "language": { "type": "string" },
+        "level": { "enum": ["deep", "generic", "unsupported"] },
+        "file_count": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ChangedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "status", "language", "additions", "deletions", "hunks"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "path": { "type": "string" },
+        "old_path": { "type": "string" },
+        "status": { "enum": ["added", "modified", "removed", "renamed"] },
+        "language": { "type": "string" },
+        "is_binary": { "type": "boolean" },
+        "additions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 },
+        "hunks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["old_start", "old_lines", "new_start", "new_lines"],
+            "properties": {
+              "old_start": { "type": "integer", "minimum": 0 },
+              "old_lines": { "type": "integer", "minimum": 0 },
+              "new_start": { "type": "integer", "minimum": 0 },
+              "new_lines": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "ChangeStatus": { "enum": ["added", "modified", "removed", "unchanged"] },
+    "ImpactStatus": {
+      "description": "direct = the node itself changed. Others follow spec §5 Layer 5.",
+      "enum": ["direct", "confirmed_dependency", "potential", "evidence_supported", "unknown", "none"]
+    },
+    "Node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "level", "label", "parent_id", "change_status", "impact_status", "code_refs", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "kind": {
+          "enum": ["system", "service", "package", "module", "component", "class", "function", "method",
+                   "route", "view", "model", "serializer", "form", "task", "external"]
+        },
+        "level": {
+          "description": "Hierarchy tier (spec §4): system → module → symbol. Source code is reached via code_refs.",
+          "enum": ["system", "module", "symbol"]
+        },
+        "label": { "type": "string", "minLength": 1 },
+        "parent_id": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "language": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "change_status": { "$ref": "#/$defs/ChangeStatus" },
+        "impact_status": { "$ref": "#/$defs/ImpactStatus" },
+        "impact_depth": { "type": "integer", "minimum": 0, "description": "Hops from nearest changed node in bounded propagation." },
+        "code_refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" }, "description": "External nodes point at the import/call that created them." }
+      },
+      "if": { "properties": { "kind": { "const": "external" } } },
+      "else": { "properties": { "code_refs": { "minItems": 1 } } }
+    },
+    "Edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "target", "kind", "confidence", "change_status", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "source": { "$ref": "#/$defs/Id" },
+        "target": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["imports", "calls", "inherits", "routes_to", "uses_model", "renders", "depends_on"] },
+        "confidence": {
+          "description": "unknown = dynamic call / reflection / unresolved framework behavior (spec §5 Layer 3).",
+          "enum": ["confirmed", "unknown"]
+        },
+        "change_status": { "$ref": "#/$defs/ChangeStatus" },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "Evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "description", "code_refs", "producer"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "kind": {
+          "enum": ["ast", "import", "diff", "framework_rule", "ts_compiler", "doc", "pr_metadata", "semantic_claim"]
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "code_refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } },
+        "producer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": { "name": { "type": "string" }, "version": { "type": "string" } }
+        }
+      }
+    },
+    "Scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "entry_node_id", "node_ids", "edge_ids", "before", "after", "discovery", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "entry_node_id": { "$ref": "#/$defs/Id" },
+        "node_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "edge_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "business_flow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "source"],
+          "properties": { "text": { "type": "string" }, "source": { "$ref": "#/$defs/Source" } }
+        },
+        "before": { "$ref": "#/$defs/ScenarioSide" },
+        "after": { "$ref": "#/$defs/ScenarioSide" },
+        "discovery": {
+          "description": "Why this scenario exists (e.g. 'entry point django:url reaches changed symbol X').",
+          "type": "array", "items": { "type": "string" }
+        },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "ScenarioSide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_ids", "edge_ids"],
+      "properties": {
+        "node_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "edge_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "timeline_id": { "$ref": "#/$defs/Id" }
+      }
+    },
+    "Timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scenario_id", "side", "mode", "events", "disclaimer"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "scenario_id": { "$ref": "#/$defs/Id" },
+        "side": { "$ref": "#/$defs/Side" },
+        "mode": {
+          "description": "static_flow when execution-order evidence is insufficient (spec §7).",
+          "enum": ["animation", "static_flow"]
+        },
+        "mode_reason": { "type": "string" },
+        "disclaimer": { "type": "string", "minLength": 1 },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/TimelineEvent" } }
+      }
+    },
+    "TimelineEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "kind", "code_ref", "granularity", "evidence_status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "order": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["enter", "call", "return", "branch", "query", "render", "raise"] },
+        "label": { "type": "string" },
+        "node_id": { "$ref": "#/$defs/Id" },
+        "edge_id": { "$ref": "#/$defs/Id" },
+        "code_ref": { "$ref": "#/$defs/CodeRef" },
+        "granularity": { "enum": ["statement", "function", "class"] },
+        "evidence_status": {
+          "description": "possible = inside an unconfirmed conditional branch; unknown = target not statically resolvable.",
+          "enum": ["confirmed", "possible", "unknown"]
+        },
+        "branch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["condition"],
+          "properties": { "condition": { "type": "string" }, "label": { "type": "string" } }
+        },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+      }
+    },
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "title", "description", "severity", "status", "changed_file_ids", "node_ids", "code_refs", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "source": { "$ref": "#/$defs/Source" },
+        "rule": { "type": "string" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "severity": { "enum": ["info", "attention", "warning"] },
+        "status": { "enum": ["verified", "needs_confirmation"] },
+        "changed_file_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } },
+        "node_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "code_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CodeRef" } },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      },
+      "if": { "properties": { "source": { "const": "semantic" } } },
+      "then": { "properties": { "status": { "const": "needs_confirmation" } } }
+    },
+    "Convention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "origin", "source", "title", "description", "verdict", "existing_examples", "pr_refs", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "origin": { "enum": ["documented", "inferred", "hypothesis"] },
+        "source": { "$ref": "#/$defs/Source" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "doc_ref": { "$ref": "#/$defs/CodeRef" },
+        "verdict": { "enum": ["follows", "deviates", "unclear"] },
+        "existing_examples": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } },
+        "pr_refs": { "type": "array", "items": { "$ref": "#/$defs/CodeRef" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "origin": { "const": "documented" } } }, "then": { "required": ["doc_ref"] } },
+        { "if": { "properties": { "source": { "const": "semantic" } } }, "then": { "properties": { "origin": { "enum": ["documented", "hypothesis"] } } } }
+      ]
+    },
+    "Semantic": {
+      "description": "Claude output. Text only — no nodes, edges, timelines or code mapping (spec §5 Layer 6).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "tier", "decision"],
+      "properties": {
+        "status": { "enum": ["skipped", "done", "failed", "unavailable"] },
+        "tier": { "enum": ["none", "light", "standard", "deep"] },
+        "decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score", "reasons", "mode"],
+          "properties": {
+            "score": { "type": "number", "minimum": 0 },
+            "reasons": { "type": "array", "items": { "type": "string" } },
+            "mode": { "enum": ["auto", "off", "light", "standard", "deep"], "description": "auto or a manual override." }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["purpose", "behavior_changes"],
+          "properties": {
+            "purpose": { "type": "string" },
+            "business_logic": { "type": "string" },
+            "behavior_changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["text"],
+                "properties": {
+                  "text": { "type": "string" },
+                  "node_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+                  "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+                }
+              }
+            },
+            "design_rationale": { "type": "string" }
+          }
+        },
+        "knowledge_sources": { "type": "array", "items": { "type": "string" } },
+        "error": { "type": "string" }
+      }
+    },
+    "WalkthroughTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["view"],
+      "properties": {
+        "view": { "enum": ["overview", "map", "scenario", "code", "findings", "conventions"] },
+        "node_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "scenario_id": { "$ref": "#/$defs/Id" },
+        "timeline_id": { "$ref": "#/$defs/Id" },
+        "code_ref": { "$ref": "#/$defs/CodeRef" }
+      }
+    },
+    "Walkthrough": {
+      "description": "Pre-generated guide (spec §9). Questions outside this set must show 'insufficient data'.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps", "questions"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "body", "target", "source"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "title": { "type": "string" },
+              "body": { "type": "string" },
+              "target": { "$ref": "#/$defs/WalkthroughTarget" },
+              "source": { "$ref": "#/$defs/Source" }
+            }
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "question", "answer", "target", "source"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "question": { "type": "string" },
+              "answer": { "type": "string" },
+              "target": { "$ref": "#/$defs/WalkthroughTarget" },
+              "source": { "$ref": "#/$defs/Source" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

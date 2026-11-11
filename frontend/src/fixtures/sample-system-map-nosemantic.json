@@ -1,0 +1,2901 @@
+{
+  "kind": "system_map",
+  "schema_version": "2.2.0",
+  "analyzer_version": "2.2.0-fixture",
+  "system_map_id": "sm_sample_nosemantic",
+  "generated_at": "2026-11-11T09:00:00Z",
+  "repo": {
+    "owner": "acme",
+    "name": "shop"
+  },
+  "commit_sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "system": {
+    "technical_name": "shop"
+  },
+  "coverage": [
+    {
+      "language": "python",
+      "level": "deep",
+      "file_count": 64
+    },
+    {
+      "language": "markdown",
+      "level": "generic",
+      "file_count": 4
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "cap:orders",
+      "technical_name": "app.orders",
+      "evidence_refs": [
+        "ev:orders"
+      ],
+      "path": "app/orders",
+      "language": "python",
+      "entity_ids": [
+        "ent:cart",
+        "ent:order"
+      ],
+      "entry_point_ids": [
+        "ep:checkout",
+        "ep:cancel"
+      ],
+      "component_count": 6,
+      "category": "business",
+      "domain_id": "dom:app"
+    },
+    {
+      "id": "cap:discounts",
+      "technical_name": "app.discounts",
+      "evidence_refs": [
+        "ev:discounts"
+      ],
+      "path": "app/discounts",
+      "language": "python",
+      "entity_ids": [
+        "ent:promotion"
+      ],
+      "entry_point_ids": [
+        "ep:expire_promos"
+      ],
+      "component_count": 4,
+      "category": "business",
+      "domain_id": "dom:app"
+    },
+    {
+      "id": "cap:payments",
+      "technical_name": "app.payments",
+      "evidence_refs": [
+        "ev:payments"
+      ],
+      "path": "app/payments",
+      "language": "python",
+      "entity_ids": [
+        "ent:payment"
+      ],
+      "entry_point_ids": [],
+      "component_count": 5,
+      "category": "business",
+      "domain_id": "dom:app"
+    },
+    {
+      "id": "cap:inventory",
+      "technical_name": "app.inventory",
+      "evidence_refs": [
+        "ev:inventory"
+      ],
+      "path": "app/inventory",
+      "language": "python",
+      "entity_ids": [
+        "ent:stock_item"
+      ],
+      "entry_point_ids": [
+        "ep:stock_report"
+      ],
+      "component_count": 3,
+      "category": "business",
+      "domain_id": "dom:app"
+    },
+    {
+      "id": "cap:notifications",
+      "technical_name": "app.notifications",
+      "evidence_refs": [
+        "ev:notifications"
+      ],
+      "path": "app/notifications",
+      "language": "python",
+      "entity_ids": [
+        "ent:notification"
+      ],
+      "entry_point_ids": [],
+      "component_count": 3,
+      "category": "business",
+      "domain_id": "dom:app"
+    },
+    {
+      "id": "cap:payments.refunds",
+      "technical_name": "app.payments.refunds",
+      "evidence_refs": [
+        "ev:payments.refunds"
+      ],
+      "path": "app/payments/refunds",
+      "category": "business",
+      "parent_capability_id": "cap:payments",
+      "domain_id": "dom:app",
+      "language": "python",
+      "entity_ids": [],
+      "entry_point_ids": [
+        "ep:refund"
+      ],
+      "component_count": 2
+    },
+    {
+      "id": "cap:payments.webhooks",
+      "technical_name": "app.payments.webhooks",
+      "evidence_refs": [
+        "ev:payments.webhooks"
+      ],
+      "path": "app/payments/webhooks",
+      "category": "business",
+      "parent_capability_id": "cap:payments",
+      "domain_id": "dom:app",
+      "language": "python",
+      "entity_ids": [],
+      "entry_point_ids": [
+        "ep:webhook"
+      ],
+      "component_count": 2
+    },
+    {
+      "id": "cap:core",
+      "technical_name": "app.core",
+      "evidence_refs": [
+        "ev:core"
+      ],
+      "path": "app/core",
+      "category": "shared",
+      "language": "python",
+      "entity_ids": [],
+      "entry_point_ids": [],
+      "component_count": 4
+    },
+    {
+      "id": "cap:tests",
+      "technical_name": "tests",
+      "evidence_refs": [
+        "ev:tests"
+      ],
+      "path": "tests",
+      "category": "engineering",
+      "language": "python",
+      "entity_ids": [],
+      "entry_point_ids": [],
+      "component_count": 12
+    }
+  ],
+  "entities": [
+    {
+      "id": "ent:cart",
+      "technical_name": "Cart",
+      "evidence_refs": [
+        "ev:ent:cart"
+      ],
+      "capability_id": "cap:orders",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/models.py",
+          "start_line": 12
+        }
+      ]
+    },
+    {
+      "id": "ent:order",
+      "technical_name": "Order",
+      "evidence_refs": [
+        "ev:ent:order"
+      ],
+      "capability_id": "cap:orders",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/models.py",
+          "start_line": 48
+        }
+      ]
+    },
+    {
+      "id": "ent:promotion",
+      "technical_name": "Promotion",
+      "evidence_refs": [
+        "ev:ent:promotion"
+      ],
+      "capability_id": "cap:discounts",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/models.py",
+          "start_line": 10
+        }
+      ]
+    },
+    {
+      "id": "ent:payment",
+      "technical_name": "Payment",
+      "evidence_refs": [
+        "ev:ent:payment"
+      ],
+      "capability_id": "cap:payments",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/models.py",
+          "start_line": 9
+        }
+      ]
+    },
+    {
+      "id": "ent:stock_item",
+      "technical_name": "StockItem",
+      "evidence_refs": [
+        "ev:ent:stock_item"
+      ],
+      "capability_id": "cap:inventory",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/models.py",
+          "start_line": 7
+        }
+      ]
+    },
+    {
+      "id": "ent:notification",
+      "technical_name": "Notification",
+      "evidence_refs": [
+        "ev:ent:notification"
+      ],
+      "capability_id": "cap:notifications",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/models.py",
+          "start_line": 6
+        }
+      ]
+    }
+  ],
+  "entry_points": [
+    {
+      "id": "ep:checkout",
+      "technical_name": "POST /checkout",
+      "evidence_refs": [
+        "ev:ep:checkout"
+      ],
+      "capability_id": "cap:orders",
+      "kind": "route",
+      "handler_component_id": "comp:orders.checkout_view",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 30
+        }
+      ]
+    },
+    {
+      "id": "ep:cancel",
+      "technical_name": "DELETE /orders/<id>",
+      "evidence_refs": [
+        "ev:ep:cancel"
+      ],
+      "capability_id": "cap:orders",
+      "kind": "route",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 88
+        }
+      ]
+    },
+    {
+      "id": "ep:webhook",
+      "technical_name": "POST /payments/webhook",
+      "evidence_refs": [
+        "ev:ep:webhook"
+      ],
+      "capability_id": "cap:payments.webhooks",
+      "kind": "api",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/views.py",
+          "start_line": 15
+        }
+      ]
+    },
+    {
+      "id": "ep:refund",
+      "technical_name": "payments.tasks.refund_order",
+      "evidence_refs": [
+        "ev:ep:refund"
+      ],
+      "capability_id": "cap:payments.refunds",
+      "kind": "task",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/tasks.py",
+          "start_line": 20
+        }
+      ]
+    },
+    {
+      "id": "ep:stock_report",
+      "technical_name": "inventory.tasks.daily_stock_report",
+      "evidence_refs": [
+        "ev:ep:stock_report"
+      ],
+      "capability_id": "cap:inventory",
+      "kind": "schedule",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/tasks.py",
+          "start_line": 11
+        }
+      ]
+    },
+    {
+      "id": "ep:expire_promos",
+      "technical_name": "manage.py expire_promotions",
+      "evidence_refs": [
+        "ev:ep:expire_promos"
+      ],
+      "capability_id": "cap:discounts",
+      "kind": "command",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/management/commands/expire_promotions.py",
+          "start_line": 8
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "comp:orders.checkout_view",
+      "technical_name": "checkout_view",
+      "evidence_refs": [
+        "ev:comp:orders.checkout_view"
+      ],
+      "capability_id": "cap:orders",
+      "kind": "view",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 31
+        }
+      ]
+    },
+    {
+      "id": "comp:orders.Order",
+      "technical_name": "Order",
+      "evidence_refs": [
+        "ev:comp:orders.Order"
+      ],
+      "capability_id": "cap:orders",
+      "kind": "model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/models.py",
+          "start_line": 48
+        }
+      ]
+    },
+    {
+      "id": "comp:discounts.apply_promotions",
+      "technical_name": "apply_promotions",
+      "evidence_refs": [
+        "ev:comp:discounts.apply_promotions"
+      ],
+      "capability_id": "cap:discounts",
+      "kind": "function",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 22
+        }
+      ]
+    },
+    {
+      "id": "comp:payments.charge",
+      "technical_name": "charge",
+      "evidence_refs": [
+        "ev:comp:payments.charge"
+      ],
+      "capability_id": "cap:payments",
+      "kind": "function",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 18
+        }
+      ]
+    },
+    {
+      "id": "comp:inventory.reserve",
+      "technical_name": "reserve",
+      "evidence_refs": [
+        "ev:comp:inventory.reserve"
+      ],
+      "capability_id": "cap:inventory",
+      "kind": "function",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 14
+        }
+      ]
+    },
+    {
+      "id": "comp:notifications.send_receipt",
+      "technical_name": "send_receipt",
+      "evidence_refs": [
+        "ev:comp:notifications.send_receipt"
+      ],
+      "capability_id": "cap:notifications",
+      "kind": "function",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 9
+        }
+      ]
+    },
+    {
+      "id": "comp:payments.stripe",
+      "technical_name": "stripe",
+      "evidence_refs": [
+        "ev:comp:stripe"
+      ],
+      "capability_id": "cap:payments",
+      "kind": "external",
+      "refs": []
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel:orders-discounts",
+      "source": "cap:orders",
+      "target": "cap:discounts",
+      "kind": "calls",
+      "weight": 3,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:orders-discounts"
+      ]
+    },
+    {
+      "id": "rel:orders-inventory",
+      "source": "cap:orders",
+      "target": "cap:inventory",
+      "kind": "calls",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:orders-inventory"
+      ]
+    },
+    {
+      "id": "rel:orders-payments",
+      "source": "cap:orders",
+      "target": "cap:payments",
+      "kind": "calls",
+      "weight": 4,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:orders-payments"
+      ]
+    },
+    {
+      "id": "rel:orders-notifications",
+      "source": "cap:orders",
+      "target": "cap:notifications",
+      "kind": "calls",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:orders-notifications"
+      ]
+    },
+    {
+      "id": "rel:payments-orders",
+      "source": "cap:payments",
+      "target": "cap:orders",
+      "kind": "depends_on",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:payments-orders"
+      ]
+    },
+    {
+      "id": "rel:inventory-notifications",
+      "source": "cap:inventory",
+      "target": "cap:notifications",
+      "kind": "calls",
+      "weight": 1,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:inventory-notifications"
+      ]
+    },
+    {
+      "id": "rel:payments-notifications",
+      "source": "cap:payments",
+      "target": "cap:notifications",
+      "kind": "calls",
+      "weight": 1,
+      "confidence": "unknown",
+      "evidence_refs": [
+        "ev:rel:payments-notifications"
+      ]
+    },
+    {
+      "id": "rel:discounts-promotion",
+      "source": "cap:discounts",
+      "target": "ent:promotion",
+      "kind": "uses_entity",
+      "weight": 3,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:discounts-promotion"
+      ]
+    },
+    {
+      "id": "rel:refunds-payments",
+      "source": "cap:payments.refunds",
+      "target": "cap:payments",
+      "kind": "calls",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:refunds-payments"
+      ]
+    },
+    {
+      "id": "rel:refunds-orders",
+      "source": "cap:payments.refunds",
+      "target": "cap:orders",
+      "kind": "calls",
+      "weight": 1,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:refunds-orders"
+      ]
+    },
+    {
+      "id": "rel:webhooks-orders",
+      "source": "cap:payments.webhooks",
+      "target": "cap:orders",
+      "kind": "calls",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:webhooks-orders"
+      ]
+    },
+    {
+      "id": "rel:orders-core",
+      "source": "cap:orders",
+      "target": "cap:core",
+      "kind": "depends_on",
+      "weight": 5,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:orders-core"
+      ]
+    },
+    {
+      "id": "rel:discounts-core",
+      "source": "cap:discounts",
+      "target": "cap:core",
+      "kind": "depends_on",
+      "weight": 3,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:discounts-core"
+      ]
+    },
+    {
+      "id": "rel:payments-core",
+      "source": "cap:payments",
+      "target": "cap:core",
+      "kind": "depends_on",
+      "weight": 3,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:payments-core"
+      ]
+    },
+    {
+      "id": "rel:inventory-core",
+      "source": "cap:inventory",
+      "target": "cap:core",
+      "kind": "depends_on",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:inventory-core"
+      ]
+    },
+    {
+      "id": "rel:notifications-core",
+      "source": "cap:notifications",
+      "target": "cap:core",
+      "kind": "depends_on",
+      "weight": 2,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:notifications-core"
+      ]
+    },
+    {
+      "id": "rel:tests-orders",
+      "source": "cap:tests",
+      "target": "cap:orders",
+      "kind": "depends_on",
+      "weight": 9,
+      "confidence": "confirmed",
+      "evidence_refs": [
+        "ev:rel:tests-orders"
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow:checkout",
+      "technical_name": "checkout",
+      "evidence_refs": [
+        "ev:flow:checkout"
+      ],
+      "entry_point_id": "ep:checkout",
+      "capability_ids": [
+        "cap:orders",
+        "cap:discounts",
+        "cap:inventory",
+        "cap:payments",
+        "cap:notifications",
+        "cap:core"
+      ],
+      "entity_ids": [
+        "ent:cart",
+        "ent:promotion",
+        "ent:stock_item",
+        "ent:payment",
+        "ent:order",
+        "ent:notification"
+      ],
+      "timeline": {
+        "mode": "animation",
+        "steps": [
+          {
+            "id": "step:checkout:0",
+            "order": 0,
+            "kind": "enter",
+            "capability_id": "cap:orders",
+            "component_ids": [],
+            "technical_label": "進入 checkout_view",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:0"
+            ]
+          },
+          {
+            "id": "step:checkout:1",
+            "order": 1,
+            "kind": "read",
+            "capability_id": "cap:orders",
+            "entity_id": "ent:cart",
+            "component_ids": [],
+            "technical_label": "讀取 Cart",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:1"
+            ]
+          },
+          {
+            "id": "step:checkout:2",
+            "order": 2,
+            "kind": "call",
+            "capability_id": "cap:discounts",
+            "entity_id": "ent:promotion",
+            "component_ids": [],
+            "technical_label": "apply_promotions(cart)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:2"
+            ]
+          },
+          {
+            "id": "step:checkout:3",
+            "order": 3,
+            "kind": "call",
+            "capability_id": "cap:discounts",
+            "component_ids": [],
+            "technical_label": "apply_member_discount(cart)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:3"
+            ]
+          },
+          {
+            "id": "step:checkout:4",
+            "order": 4,
+            "kind": "call",
+            "capability_id": "cap:inventory",
+            "entity_id": "ent:stock_item",
+            "component_ids": [],
+            "technical_label": "reserve(items)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:4"
+            ]
+          },
+          {
+            "id": "step:checkout:5",
+            "order": 5,
+            "kind": "call",
+            "capability_id": "cap:payments",
+            "entity_id": "ent:payment",
+            "component_ids": [],
+            "technical_label": "charge(cart.total)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:5"
+            ]
+          },
+          {
+            "id": "step:checkout:6",
+            "order": 6,
+            "kind": "create",
+            "capability_id": "cap:orders",
+            "entity_id": "ent:order",
+            "component_ids": [],
+            "technical_label": "Order.objects.create",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:6"
+            ]
+          },
+          {
+            "id": "step:checkout:7",
+            "order": 7,
+            "kind": "emit",
+            "capability_id": "cap:notifications",
+            "entity_id": "ent:notification",
+            "component_ids": [],
+            "technical_label": "send_receipt(order)",
+            "evidence_status": "unknown",
+            "evidence_refs": [
+              "ev:step:checkout:7"
+            ]
+          },
+          {
+            "id": "step:checkout:8",
+            "order": 8,
+            "kind": "call",
+            "capability_id": "cap:core",
+            "component_ids": [],
+            "technical_label": "core.audit_log(order)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:checkout:8"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "flow:cancel",
+      "technical_name": "cancel",
+      "evidence_refs": [
+        "ev:flow:cancel"
+      ],
+      "entry_point_id": "ep:cancel",
+      "capability_ids": [
+        "cap:orders",
+        "cap:inventory",
+        "cap:payments",
+        "cap:notifications"
+      ],
+      "entity_ids": [
+        "ent:order",
+        "ent:stock_item",
+        "ent:payment",
+        "ent:notification"
+      ],
+      "timeline": {
+        "mode": "animation",
+        "steps": [
+          {
+            "id": "step:cancel:0",
+            "order": 0,
+            "kind": "enter",
+            "capability_id": "cap:orders",
+            "component_ids": [],
+            "technical_label": "進入 cancel_view",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:cancel:0"
+            ]
+          },
+          {
+            "id": "step:cancel:1",
+            "order": 1,
+            "kind": "write",
+            "capability_id": "cap:orders",
+            "entity_id": "ent:order",
+            "component_ids": [],
+            "technical_label": "order.status = cancelled",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:cancel:1"
+            ]
+          },
+          {
+            "id": "step:cancel:2",
+            "order": 2,
+            "kind": "call",
+            "capability_id": "cap:inventory",
+            "entity_id": "ent:stock_item",
+            "component_ids": [],
+            "technical_label": "release(items)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:cancel:2"
+            ]
+          },
+          {
+            "id": "step:cancel:3",
+            "order": 3,
+            "kind": "call",
+            "capability_id": "cap:payments",
+            "entity_id": "ent:payment",
+            "component_ids": [],
+            "technical_label": "refund(order)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:cancel:3"
+            ]
+          },
+          {
+            "id": "step:cancel:4",
+            "order": 4,
+            "kind": "emit",
+            "capability_id": "cap:notifications",
+            "entity_id": "ent:notification",
+            "component_ids": [],
+            "technical_label": "send_cancel_notice",
+            "evidence_status": "possible",
+            "evidence_refs": [
+              "ev:step:cancel:4"
+            ],
+            "branch": {
+              "condition": "order.paid is True"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "flow:refund",
+      "technical_name": "refund",
+      "evidence_refs": [
+        "ev:flow:refund"
+      ],
+      "entry_point_id": "ep:refund",
+      "capability_ids": [
+        "cap:payments.refunds",
+        "cap:orders",
+        "cap:notifications"
+      ],
+      "entity_ids": [
+        "ent:payment",
+        "ent:order",
+        "ent:notification"
+      ],
+      "timeline": {
+        "mode": "animation",
+        "steps": [
+          {
+            "id": "step:refund:0",
+            "order": 0,
+            "kind": "enter",
+            "capability_id": "cap:payments.refunds",
+            "component_ids": [],
+            "technical_label": "進入 refund_order task",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:refund:0"
+            ]
+          },
+          {
+            "id": "step:refund:1",
+            "order": 1,
+            "kind": "call",
+            "capability_id": "cap:payments.refunds",
+            "entity_id": "ent:payment",
+            "component_ids": [],
+            "technical_label": "gateway.refund",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:refund:1"
+            ]
+          },
+          {
+            "id": "step:refund:2",
+            "order": 2,
+            "kind": "write",
+            "capability_id": "cap:orders",
+            "entity_id": "ent:order",
+            "component_ids": [],
+            "technical_label": "order.status = refunded",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:refund:2"
+            ]
+          },
+          {
+            "id": "step:refund:3",
+            "order": 3,
+            "kind": "emit",
+            "capability_id": "cap:notifications",
+            "entity_id": "ent:notification",
+            "component_ids": [],
+            "technical_label": "send_refund_notice",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:refund:3"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "flow:stock_report",
+      "technical_name": "stock_report",
+      "evidence_refs": [
+        "ev:flow:stock_report"
+      ],
+      "entry_point_id": "ep:stock_report",
+      "capability_ids": [
+        "cap:inventory",
+        "cap:notifications"
+      ],
+      "entity_ids": [
+        "ent:stock_item",
+        "ent:notification"
+      ],
+      "timeline": {
+        "mode": "animation",
+        "steps": [
+          {
+            "id": "step:stock_report:0",
+            "order": 0,
+            "kind": "enter",
+            "capability_id": "cap:inventory",
+            "component_ids": [],
+            "technical_label": "進入 daily_stock_report",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:stock_report:0"
+            ]
+          },
+          {
+            "id": "step:stock_report:1",
+            "order": 1,
+            "kind": "read",
+            "capability_id": "cap:inventory",
+            "entity_id": "ent:stock_item",
+            "component_ids": [],
+            "technical_label": "StockItem.objects.filter(low)",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:stock_report:1"
+            ]
+          },
+          {
+            "id": "step:stock_report:2",
+            "order": 2,
+            "kind": "emit",
+            "capability_id": "cap:notifications",
+            "entity_id": "ent:notification",
+            "component_ids": [],
+            "technical_label": "send_low_stock_alert",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:stock_report:2"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "flow:expire_promos",
+      "technical_name": "expire_promos",
+      "evidence_refs": [
+        "ev:flow:expire_promos"
+      ],
+      "entry_point_id": "ep:expire_promos",
+      "capability_ids": [
+        "cap:discounts"
+      ],
+      "entity_ids": [
+        "ent:promotion"
+      ],
+      "timeline": {
+        "mode": "animation",
+        "steps": [
+          {
+            "id": "step:expire_promos:0",
+            "order": 0,
+            "kind": "enter",
+            "capability_id": "cap:discounts",
+            "component_ids": [],
+            "technical_label": "進入 expire_promotions",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:expire_promos:0"
+            ]
+          },
+          {
+            "id": "step:expire_promos:1",
+            "order": 1,
+            "kind": "write",
+            "capability_id": "cap:discounts",
+            "entity_id": "ent:promotion",
+            "component_ids": [],
+            "technical_label": "Promotion.objects.filter(expired).update",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:expire_promos:1"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "flow:payment_webhook",
+      "technical_name": "payment_webhook",
+      "evidence_refs": [
+        "ev:flow:payment_webhook"
+      ],
+      "entry_point_id": "ep:webhook",
+      "capability_ids": [
+        "cap:payments.webhooks",
+        "cap:orders",
+        "cap:notifications"
+      ],
+      "entity_ids": [
+        "ent:payment",
+        "ent:order",
+        "ent:notification"
+      ],
+      "timeline": {
+        "mode": "animation",
+        "steps": [
+          {
+            "id": "step:payment_webhook:0",
+            "order": 0,
+            "kind": "enter",
+            "capability_id": "cap:payments.webhooks",
+            "component_ids": [],
+            "technical_label": "進入 webhook_view",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:payment_webhook:0"
+            ]
+          },
+          {
+            "id": "step:payment_webhook:1",
+            "order": 1,
+            "kind": "write",
+            "capability_id": "cap:payments.webhooks",
+            "entity_id": "ent:payment",
+            "component_ids": [],
+            "technical_label": "payment.status = result",
+            "evidence_status": "confirmed",
+            "evidence_refs": [
+              "ev:step:payment_webhook:1"
+            ]
+          },
+          {
+            "id": "step:payment_webhook:2",
+            "order": 2,
+            "kind": "write",
+            "capability_id": "cap:orders",
+            "entity_id": "ent:order",
+            "component_ids": [],
+            "technical_label": "order.mark_paid()",
+            "evidence_status": "possible",
+            "evidence_refs": [
+              "ev:step:payment_webhook:2"
+            ],
+            "branch": {
+              "condition": "result == 'succeeded'"
+            }
+          },
+          {
+            "id": "step:payment_webhook:3",
+            "order": 3,
+            "kind": "emit",
+            "capability_id": "cap:notifications",
+            "entity_id": "ent:notification",
+            "component_ids": [],
+            "technical_label": "dispatch(channel)",
+            "evidence_status": "unknown",
+            "evidence_refs": [
+              "ev:step:payment_webhook:3"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "flow_budget": {
+    "entry_points_total": 6,
+    "flows_built": 6
+  },
+  "evidence": [
+    {
+      "id": "ev:orders",
+      "kind": "ast",
+      "description": "app/orders 是一個 Django app",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/apps.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:discounts",
+      "kind": "ast",
+      "description": "app/discounts 是一個 Django app",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/apps.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:payments",
+      "kind": "ast",
+      "description": "app/payments 是一個 Django app",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/apps.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:inventory",
+      "kind": "ast",
+      "description": "app/inventory 是一個 Django app",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/apps.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:notifications",
+      "kind": "ast",
+      "description": "app/notifications 是一個 Django app",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/apps.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:cart",
+      "kind": "ast",
+      "description": "Cart 是 ORM model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/models.py",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:order",
+      "kind": "ast",
+      "description": "Order 是 ORM model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/models.py",
+          "start_line": 48
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:promotion",
+      "kind": "ast",
+      "description": "Promotion 是 ORM model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/models.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:payment",
+      "kind": "ast",
+      "description": "Payment 是 ORM model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/models.py",
+          "start_line": 9
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:stock_item",
+      "kind": "ast",
+      "description": "StockItem 是 ORM model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/models.py",
+          "start_line": 7
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ent:notification",
+      "kind": "ast",
+      "description": "Notification 是 ORM model",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/models.py",
+          "start_line": 6
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:checkout",
+      "kind": "framework_rule",
+      "description": "POST /checkout 是 route 入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 30
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:cancel",
+      "kind": "framework_rule",
+      "description": "DELETE /orders/<id> 是 route 入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 88
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:webhook",
+      "kind": "framework_rule",
+      "description": "POST /payments/webhook 是 api 入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/views.py",
+          "start_line": 15
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:refund",
+      "kind": "framework_rule",
+      "description": "payments.tasks.refund_order 是 task 入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/tasks.py",
+          "start_line": 20
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:stock_report",
+      "kind": "framework_rule",
+      "description": "inventory.tasks.daily_stock_report 是 schedule 入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/tasks.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:ep:expire_promos",
+      "kind": "framework_rule",
+      "description": "manage.py expire_promotions 是 command 入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/management/commands/expire_promotions.py",
+          "start_line": 8
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:orders.checkout_view",
+      "kind": "ast",
+      "description": "checkout_view 定義於 app/orders/views.py",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 31
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:orders.Order",
+      "kind": "ast",
+      "description": "Order 定義於 app/orders/models.py",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/models.py",
+          "start_line": 48
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:discounts.apply_promotions",
+      "kind": "ast",
+      "description": "apply_promotions 定義於 app/discounts/services.py",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 22
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:payments.charge",
+      "kind": "ast",
+      "description": "charge 定義於 app/payments/services.py",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 18
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:inventory.reserve",
+      "kind": "ast",
+      "description": "reserve 定義於 app/inventory/services.py",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:notifications.send_receipt",
+      "kind": "ast",
+      "description": "send_receipt 定義於 app/notifications/services.py",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 9
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:comp:stripe",
+      "kind": "import",
+      "description": "payments.charge 呼叫 stripe SDK",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 25
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:orders-discounts",
+      "kind": "import",
+      "description": "cap:orders 與 cap:discounts 之間共 3 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:orders-inventory",
+      "kind": "import",
+      "description": "cap:orders 與 cap:inventory 之間共 2 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:orders-payments",
+      "kind": "import",
+      "description": "cap:orders 與 cap:payments 之間共 4 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:orders-notifications",
+      "kind": "import",
+      "description": "cap:orders 與 cap:notifications 之間共 2 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:payments-orders",
+      "kind": "import",
+      "description": "cap:payments 與 cap:orders 之間共 2 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:inventory-notifications",
+      "kind": "import",
+      "description": "cap:inventory 與 cap:notifications 之間共 1 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:payments-notifications",
+      "kind": "import",
+      "description": "cap:payments 與 cap:notifications 之間共 1 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:discounts-promotion",
+      "kind": "import",
+      "description": "cap:discounts 與 ent:promotion 之間共 3 處呼叫或引用",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:0",
+      "kind": "ast",
+      "description": "checkout 第 0 步：進入 checkout_view",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:1",
+      "kind": "ast",
+      "description": "checkout 第 1 步：讀取 Cart",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:2",
+      "kind": "ast",
+      "description": "checkout 第 2 步：apply_promotions(cart)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:3",
+      "kind": "ast",
+      "description": "checkout 第 3 步：apply_member_discount(cart)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 13
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:4",
+      "kind": "ast",
+      "description": "checkout 第 4 步：reserve(items)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:5",
+      "kind": "ast",
+      "description": "checkout 第 5 步：charge(cart.total)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 15
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:6",
+      "kind": "ast",
+      "description": "checkout 第 6 步：Order.objects.create",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 16
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:7",
+      "kind": "ast",
+      "description": "checkout 第 7 步：send_receipt(order)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 17
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:checkout",
+      "kind": "framework_rule",
+      "description": "checkout 從 checkout 出發",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 30
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:cancel:0",
+      "kind": "ast",
+      "description": "cancel 第 0 步：進入 cancel_view",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:cancel:1",
+      "kind": "ast",
+      "description": "cancel 第 1 步：order.status = cancelled",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:cancel:2",
+      "kind": "ast",
+      "description": "cancel 第 2 步：release(items)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:cancel:3",
+      "kind": "ast",
+      "description": "cancel 第 3 步：refund(order)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 13
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:cancel:4",
+      "kind": "ast",
+      "description": "cancel 第 4 步：send_cancel_notice",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 14
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:cancel",
+      "kind": "framework_rule",
+      "description": "cancel 從 cancel 出發",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 88
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:refund:0",
+      "kind": "ast",
+      "description": "refund 第 0 步：進入 refund_order task",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:refund:1",
+      "kind": "ast",
+      "description": "refund 第 1 步：gateway.refund",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:refund:2",
+      "kind": "ast",
+      "description": "refund 第 2 步：order.status = refunded",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:refund:3",
+      "kind": "ast",
+      "description": "refund 第 3 步：send_refund_notice",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 13
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:refund",
+      "kind": "framework_rule",
+      "description": "refund 從 refund 出發",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/tasks.py",
+          "start_line": 20
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:stock_report:0",
+      "kind": "ast",
+      "description": "stock_report 第 0 步：進入 daily_stock_report",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:stock_report:1",
+      "kind": "ast",
+      "description": "stock_report 第 1 步：StockItem.objects.filter(low)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:stock_report:2",
+      "kind": "ast",
+      "description": "stock_report 第 2 步：send_low_stock_alert",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:stock_report",
+      "kind": "framework_rule",
+      "description": "stock_report 從 stock_report 出發",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/tasks.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:expire_promos:0",
+      "kind": "ast",
+      "description": "expire_promos 第 0 步：進入 expire_promotions",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:expire_promos:1",
+      "kind": "ast",
+      "description": "expire_promos 第 1 步：Promotion.objects.filter(expired).update",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:expire_promos",
+      "kind": "framework_rule",
+      "description": "expire_promos 從 expire_promos 出發",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/management/commands/expire_promotions.py",
+          "start_line": 8
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:payment_webhook:0",
+      "kind": "ast",
+      "description": "payment_webhook 第 0 步：進入 webhook_view",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 10
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:payment_webhook:1",
+      "kind": "ast",
+      "description": "payment_webhook 第 1 步：payment.status = result",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:payment_webhook:2",
+      "kind": "ast",
+      "description": "payment_webhook 第 2 步：order.mark_paid()",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:payment_webhook:3",
+      "kind": "ast",
+      "description": "payment_webhook 第 3 步：dispatch(channel)",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 13
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:flow:payment_webhook",
+      "kind": "framework_rule",
+      "description": "payment_webhook 從 webhook 出發",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/views.py",
+          "start_line": 15
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:system",
+      "kind": "doc",
+      "description": "專案根目錄含 app/ 下 5 個 Django app",
+      "refs": [
+        {
+          "side": "base",
+          "path": "README.md",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:payments.refunds",
+      "kind": "ast",
+      "description": "app/payments/refunds 是 app/payments 的子目錄（入口超過門檻而拆分）",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/refunds/__init__.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:payments.webhooks",
+      "kind": "ast",
+      "description": "app/payments/webhooks 是 app/payments 的子目錄（入口超過門檻而拆分）",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/webhooks/__init__.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:core",
+      "kind": "import",
+      "description": "app/core 被 5 個能力 import，本身沒有入口",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/core/__init__.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:tests",
+      "kind": "ast",
+      "description": "tests/ 是測試目錄",
+      "refs": [
+        {
+          "side": "base",
+          "path": "tests/conftest.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:step:checkout:8",
+      "kind": "ast",
+      "description": "checkout_view 最後呼叫 core.audit_log",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 48
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:refunds-payments",
+      "kind": "import",
+      "description": "payments.refunds → payments",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/refunds/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:refunds-orders",
+      "kind": "import",
+      "description": "payments.refunds → orders",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/refunds/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:webhooks-orders",
+      "kind": "import",
+      "description": "payments.webhooks → orders",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/webhooks/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:orders-core",
+      "kind": "import",
+      "description": "orders → core",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:discounts-core",
+      "kind": "import",
+      "description": "discounts → core",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/discounts/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:payments-core",
+      "kind": "import",
+      "description": "payments → core",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:inventory-core",
+      "kind": "import",
+      "description": "inventory → core",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:notifications-core",
+      "kind": "import",
+      "description": "notifications → core",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rel:tests-orders",
+      "kind": "import",
+      "description": "tests → orders",
+      "refs": [
+        {
+          "side": "base",
+          "path": "tests/services.py",
+          "start_line": 3
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:dom:app",
+      "kind": "ast",
+      "description": "頂層目錄 app/",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/__init__.py",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rule:il",
+      "kind": "doc",
+      "description": ".importlinter.ini 的 contracts",
+      "refs": [
+        {
+          "side": "base",
+          "path": ".importlinter.ini",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rule:inf:payments",
+      "kind": "import",
+      "description": "跨能力呼叫 app.payments 的統計",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 24
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:rule:inf:notify",
+      "kind": "import",
+      "description": "跨能力呼叫 app.notifications 的統計",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/services.py",
+          "start_line": 40
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:checkout",
+      "kind": "ast",
+      "description": "POST /checkout 是對外的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 30
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:cancel",
+      "kind": "ast",
+      "description": "DELETE /orders/<id> 是對外的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 88
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:webhook",
+      "kind": "ast",
+      "description": "POST /payments/webhook 是對外的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/views.py",
+          "start_line": 15
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:web-checkout",
+      "kind": "ast",
+      "description": "/checkout (web app route) 是對外的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "web/src/routes/checkout.tsx",
+          "start_line": 12
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:sdk-orders",
+      "kind": "ast",
+      "description": "acme_sdk.orders.create_order 是對外的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "sdk/acme_sdk/orders.py",
+          "start_line": 20
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:receipt-format",
+      "kind": "ast",
+      "description": "receipt.txt (email body) 是對外的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 1
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:payments-charge",
+      "kind": "ast",
+      "description": "payments.services.charge 是能力之間的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 42
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:refund-task",
+      "kind": "ast",
+      "description": "payments.tasks.refund_order 是能力之間的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/tasks.py",
+          "start_line": 20
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:if:stock-task",
+      "kind": "ast",
+      "description": "inventory.tasks.daily_stock_report 是能力之間的介面",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/tasks.py",
+          "start_line": 11
+        }
+      ],
+      "producer": {
+        "name": "static-analyzer",
+        "version": "2.2.0"
+      }
+    }
+  ],
+  "semantic": {
+    "status": "skipped",
+    "tier": "none",
+    "decision": {
+      "score": 0,
+      "reasons": [
+        "semantic_mode=off"
+      ],
+      "mode": "off"
+    }
+  },
+  "disclaimer": "流程由靜態分析重建，不是實際執行紀錄；標示「可能」或「未知」的步驟尚未被證實。",
+  "domains": [
+    {
+      "id": "dom:app",
+      "technical_name": "app",
+      "evidence_refs": [
+        "ev:dom:app"
+      ],
+      "source": "static",
+      "order": 0
+    }
+  ],
+  "architecture_rules": [
+    {
+      "id": "rule:il:discounts-independent",
+      "origin": "documented",
+      "kind": "forbidden",
+      "title": "折扣不可直接依賴訂單",
+      "description": "import-linter 契約 discounts-independent：app.discounts 不可 import app.orders；訂單把需要的資料傳給折扣。",
+      "source_ref": {
+        "side": "base",
+        "path": ".importlinter.ini",
+        "start_line": 12,
+        "end_line": 18
+      },
+      "scope_capability_ids": [
+        "cap:discounts",
+        "cap:orders"
+      ],
+      "exception_count": 1,
+      "evidence_refs": [
+        "ev:rule:il"
+      ]
+    },
+    {
+      "id": "rule:il:layers",
+      "origin": "documented",
+      "kind": "layers",
+      "title": "分層：views → services → models",
+      "description": "import-linter 分層契約：下層不可 import 上層；例外寫在 ignore_imports。",
+      "source_ref": {
+        "side": "base",
+        "path": ".importlinter.ini",
+        "start_line": 3,
+        "end_line": 10
+      },
+      "scope_capability_ids": [
+        "cap:orders",
+        "cap:discounts",
+        "cap:payments",
+        "cap:inventory",
+        "cap:notifications"
+      ],
+      "exception_count": 3,
+      "evidence_refs": [
+        "ev:rule:il"
+      ]
+    },
+    {
+      "id": "rule:inf:payments-api",
+      "origin": "inferred",
+      "kind": "interface_only",
+      "title": "呼叫付款一律透過 payments.services",
+      "description": "其他能力扣款或退款時，都呼叫 app.payments.services 的對外函式，不直接用金流 gateway。",
+      "statistic": "7 次跨能力呼叫付款中有 6 次透過 app.payments.services",
+      "scope_capability_ids": [
+        "cap:payments"
+      ],
+      "evidence_refs": [
+        "ev:rule:inf:payments"
+      ]
+    },
+    {
+      "id": "rule:inf:notify",
+      "origin": "inferred",
+      "kind": "shared_mechanism",
+      "title": "寄通知一律透過 notifications.api",
+      "description": "訂單、付款、庫存寄送通知時都使用 app.notifications.api。",
+      "statistic": "3 個能力共 5 次寄送通知，全部透過 app.notifications.api",
+      "scope_capability_ids": [
+        "cap:notifications"
+      ],
+      "evidence_refs": [
+        "ev:rule:inf:notify"
+      ]
+    }
+  ],
+  "interfaces": [
+    {
+      "id": "if:checkout",
+      "technical_name": "POST /checkout",
+      "evidence_refs": [
+        "ev:if:checkout"
+      ],
+      "ring": "outer",
+      "kind": "http_api",
+      "capability_id": "cap:orders",
+      "entry_point_id": "ep:checkout",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 30
+        }
+      ]
+    },
+    {
+      "id": "if:cancel",
+      "technical_name": "DELETE /orders/<id>",
+      "evidence_refs": [
+        "ev:if:cancel"
+      ],
+      "ring": "outer",
+      "kind": "http_api",
+      "capability_id": "cap:orders",
+      "entry_point_id": "ep:cancel",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/orders/views.py",
+          "start_line": 88
+        }
+      ]
+    },
+    {
+      "id": "if:webhook",
+      "technical_name": "POST /payments/webhook",
+      "evidence_refs": [
+        "ev:if:webhook"
+      ],
+      "ring": "outer",
+      "kind": "http_api",
+      "capability_id": "cap:payments.webhooks",
+      "entry_point_id": "ep:webhook",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/views.py",
+          "start_line": 15
+        }
+      ]
+    },
+    {
+      "id": "if:web-checkout",
+      "technical_name": "/checkout (web app route)",
+      "evidence_refs": [
+        "ev:if:web-checkout"
+      ],
+      "ring": "outer",
+      "kind": "web_route",
+      "capability_id": "cap:orders",
+      "detected_by": "config",
+      "refs": [
+        {
+          "side": "base",
+          "path": "web/src/routes/checkout.tsx",
+          "start_line": 12
+        }
+      ]
+    },
+    {
+      "id": "if:sdk-orders",
+      "technical_name": "acme_sdk.orders.create_order",
+      "evidence_refs": [
+        "ev:if:sdk-orders"
+      ],
+      "ring": "outer",
+      "kind": "sdk_export",
+      "capability_id": "cap:orders",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "sdk/acme_sdk/orders.py",
+          "start_line": 20
+        }
+      ]
+    },
+    {
+      "id": "if:receipt-format",
+      "technical_name": "receipt.txt (email body)",
+      "evidence_refs": [
+        "ev:if:receipt-format"
+      ],
+      "ring": "outer",
+      "kind": "outbound_format",
+      "capability_id": "cap:notifications",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/notifications/templates/receipt.txt",
+          "start_line": 1
+        }
+      ]
+    },
+    {
+      "id": "if:payments-charge",
+      "technical_name": "payments.services.charge",
+      "evidence_refs": [
+        "ev:if:payments-charge"
+      ],
+      "ring": "middle",
+      "kind": "module_api",
+      "capability_id": "cap:payments",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/services.py",
+          "start_line": 42
+        }
+      ]
+    },
+    {
+      "id": "if:refund-task",
+      "technical_name": "payments.tasks.refund_order",
+      "evidence_refs": [
+        "ev:if:refund-task"
+      ],
+      "ring": "middle",
+      "kind": "task",
+      "capability_id": "cap:payments.refunds",
+      "entry_point_id": "ep:refund",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/payments/tasks.py",
+          "start_line": 20
+        }
+      ]
+    },
+    {
+      "id": "if:stock-task",
+      "technical_name": "inventory.tasks.daily_stock_report",
+      "evidence_refs": [
+        "ev:if:stock-task"
+      ],
+      "ring": "middle",
+      "kind": "task",
+      "capability_id": "cap:inventory",
+      "entry_point_id": "ep:stock_report",
+      "detected_by": "static",
+      "refs": [
+        {
+          "side": "base",
+          "path": "app/inventory/tasks.py",
+          "start_line": 11
+        }
+      ]
+    }
+  ]
+}
