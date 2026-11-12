@@ -4,7 +4,7 @@ Local-first tool that helps engineers who don't know a repository — its busine
 
 ## Run
 
-Requires `git`, Python ≥ 3.12 with `uv`, Node ≥ 22.12 with `pnpm`. Optional: `gh` (logged in) for GitHub PR URLs; `claude` CLI for business explanations.
+Requires `git`, Python ≥ 3.12 with `uv`, Node ≥ 22.12 with `pnpm` (or `corepack`, which the Makefile falls back to). Optional: `gh` (logged in) for GitHub PR URLs; `claude` CLI for business explanations.
 
 ```bash
 make setup   # install dependencies, build the UI and the TS analyzer

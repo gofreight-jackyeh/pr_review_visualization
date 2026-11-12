@@ -11,6 +11,7 @@ from typing import Literal
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -56,6 +57,14 @@ def ask_mode_from_env() -> str:
     if mode not in ASK_MODES:
         raise ValueError(f"PR_EXPLORER_ASK must be one of {', '.join(ASK_MODES)}; got {mode!r}")
     return mode
+
+
+def workers_from_env() -> int:
+    """PR_EXPLORER_WORKERS: how many analyses run at once (default 2); the rest wait in the queue."""
+    raw = (os.environ.get("PR_EXPLORER_WORKERS") or "2").strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= 32:
+        raise ValueError(f"PR_EXPLORER_WORKERS must be an integer from 1 to 32; got {raw!r}")
+    return int(raw)
 
 
 def is_loopback(host: str | None) -> bool:
@@ -118,15 +127,16 @@ def host_allowed(header: str | None, extra: frozenset[str]) -> bool:
 
 def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> FastAPI:
     app = FastAPI(title="PR Review Explorer", version="2")
-    pool = executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis")
+    pool = executor or ThreadPoolExecutor(max_workers=workers_from_env(), thread_name_prefix="analysis")
     app.state.executor = pool
     # Only local dev servers (e.g. Vite) may call the API cross-origin.
     app.add_middleware(CORSMiddleware, allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
                        allow_methods=["GET", "POST"], allow_headers=["content-type"])
+    app.add_middleware(GZipMiddleware, minimum_size=1024)  # added after CORS: wraps it, so CORS headers stay on gzipped bodies
     extra_hosts = allowed_hosts_from_env()
     ask_mode = ask_mode_from_env()
 
-    @app.middleware("http")  # added after CORS, so it runs first
+    @app.middleware("http")  # added last, so it runs first (a rejected Host is never compressed)
     async def _check_host(request: Request, call_next):
         if extra_hosts is not None and not host_allowed(request.headers.get("host"), extra_hosts):
             name = _host_name(request.headers.get("host") or "")[:253]
@@ -211,9 +221,12 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
         @app.get("/{full_path:path}")
         def spa(full_path: str):
             candidate = (root / full_path).resolve()
-            if full_path and candidate.is_file() and candidate.is_relative_to(root):
-                return FileResponse(candidate)
-            return FileResponse(root / "index.html")  # SPA fallback
+            if full_path and candidate.is_file() and candidate.is_relative_to(root) and candidate.name != "index.html":
+                # Vite puts a content hash in every asset name, so they never change
+                hashed = candidate.parent.name == "assets"
+                return FileResponse(candidate, headers={"Cache-Control": "public, max-age=31536000, immutable"} if hashed else None)
+            # always revalidate the page itself, or a browser keeps the previous build after an upgrade
+            return FileResponse(root / "index.html", headers={"Cache-Control": "no-cache"})  # SPA fallback
 
     return app
 

@@ -141,7 +141,7 @@ export function PrInput({ initialAnalysis, initialRequest, poll, onLoaded }: {
         <ul className="plain">
           {(recent ?? []).map((r) => (
             <li key={r.analysis_id} className="row between">
-              <span>{r.title ?? r.analysis_id} <span className="muted small">{r.repo} {r.head_sha?.slice(0, 7)} · {r.status} · {new Date(r.created_at).toLocaleString()}</span></span>
+              <span>{r.title ?? r.analysis_id} <span className="muted small">{r.repo} {r.head_sha?.slice(0, 7)} · {r.status === "queued" && r.queue_position ? `排隊中：第 ${r.queue_position} 位` : r.status} · {new Date(r.created_at).toLocaleString()}</span></span>
               {r.overlay_id ? <button onClick={() => onLoaded(r.overlay_id!, r.analysis_id)}>開啟</button> : r.status !== "failed" ? <button onClick={() => setAnalysisId(r.analysis_id)}>進度</button> : null}
             </li>
           ))}

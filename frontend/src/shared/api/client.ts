@@ -29,7 +29,7 @@ export interface AnalysisRequest {
 export interface AnalysisCreated { analysis_id: string; status: string; cached: boolean }
 export interface Stage { name: string; status: "pending" | "running" | "done" | "failed" | "skipped"; message: string }
 export interface AnalysisStatus { analysis_id: string; status: "queued" | "running" | "done" | "failed"; stages: Stage[]; error: string | null; overlay_id: string | null; system_map_id: string | null }
-export interface AnalysisSummary { analysis_id: string; status: string; title: string | null; repo: string | null; head_sha: string | null; created_at: string; overlay_id: string | null; system_map_id: string | null }
+export interface AnalysisSummary { analysis_id: string; status: string; title: string | null; repo: string | null; head_sha: string | null; created_at: string; overlay_id: string | null; system_map_id: string | null; queue_position?: number | null }
 export interface Freshness { stale: boolean; analyzed_head_sha: string; current_head_sha: string }
 /** PR_EXPLORER_ASK on the server, and whether this client may ask (docs/api.md「GET /api/config」). */
 export interface ServerConfig { ask: { mode: "local" | "all" | "off"; allowed: boolean; reason: string | null } }

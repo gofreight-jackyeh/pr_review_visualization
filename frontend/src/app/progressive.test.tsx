@@ -110,14 +110,16 @@ describe("complete failure", () => {
 })
 
 describe("step card", () => {
-  it("shows the step, its status and provenance, but no evidence lines (owner: evidence is noise for review)", () => {
+  // Owner decision: evidence lines are noise on every row of the step list, so rows stay clean; the one place a step shows its
+  // file:line (+ PR diff link) is this detail card.
+  it("shows the step, its status and provenance, and its file:line in the detail card (not as evidence ids)", () => {
     const m = buildModel(sample.map, sample.overlay)
     const s = flowSteps(m, "flow:checkout").steps[1]
     const html = renderToStaticMarkup(<ExplorerProvider model={m} fixture><StepCard c={stepView(s)} index={1} total={5} m={m} /></ExplorerProvider>)
     expect(html).toContain(s.business_label!.text)
     expect(html).toContain("已確認的結構事實")
     expect(html).toContain("來源：AI 說明")
-    expect(html).not.toContain("app/orders/services.py:11")
+    expect(html).toContain("app/orders/services.py:11")
     expect(html).not.toContain("ev:step:checkout:1")
   })
 })
@@ -155,5 +157,22 @@ describe("PR updated", () => {
     expect(stale.textContent).toContain("1234567")
     expect(stale.textContent).toContain("不會混用兩個版本")
     expect([...stale.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["分析新版"])
+  })
+})
+
+describe("deep link", () => {
+  afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ""; history.replaceState(null, "", "/") })
+
+  it("?overlay=…#review opens 審查重點 and keeps the #hash (loading the analysis must not rewrite the URL without it)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.startsWith("/api/overlays/") && url.endsWith("/freshness") ? { stale: false, analyzed_head_sha: "x", current_head_sha: "x" }
+        : url.startsWith("/api/overlays/") ? sample.overlay : url.startsWith("/api/system-maps/") ? sample.map : {}), { status: 200, headers: { "Content-Type": "application/json" } })))
+    history.replaceState(null, "", `/?overlay=${sample.overlay.overlay_id}#review`)
+    const root = document.createElement("div")
+    document.body.appendChild(root)
+    await act(async () => { createRoot(root).render(<App />) })
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+    expect(root.querySelector(".main-nav [aria-current=page]")?.textContent).toBe("審查重點")
+    expect(window.location.hash).toBe("#review")
   })
 })

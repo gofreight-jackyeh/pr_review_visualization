@@ -3,7 +3,7 @@ import Ajv2020 from "ajv/dist/2020.js"
 import addFormats from "ajv-formats"
 import schema from "../../../../schemas/artifact/v2/artifact.schema.json"
 import { empty, large, partial, pending, sample, sampleNoSemantic, type FixturePair } from "../../fixtures"
-import { buildModel, deriveSteps, flowList, flowSteps, githubEvidenceUrl, namesOf, prDiffUrl, stepView } from "./model"
+import { buildModel, deriveSteps, branchDelta, flowList, flowSteps, githubEvidenceUrl, namesOf, prDiffUrl, stepView } from "./model"
 import { sha256Hex } from "@/shared/lib/sha256"
 import { INSUFFICIENT, matchQuestion } from "@/features/guide/matcher"
 import { buildScene } from "@/features/system-map/scene"
@@ -212,5 +212,20 @@ describe("PR diff links (GitHub Files changed anchors)", () => {
     expect(prDiffUrl({ ...ov, pr: { ...ov.pr, url: undefined } }, { path: "app/orders/views.py" })).toBeNull()
     expect(prDiffUrl(ov, { side: "base", path: "app/inventory/never_changed.py", start_line: 40 })).toBeNull()
     expect(prDiffUrl(null, { path: "app/orders/views.py" })).toBeNull()
+  })
+})
+
+describe("flow step wording", () => {
+  it("branchDelta shows only what differs from the previous step", () => {
+    expect(branchDelta(undefined, "a")).toBe("")
+    expect(branchDelta("a and b", undefined)).toBe("a and b")
+    expect(branchDelta("a and b", "a and b")).toBe("")
+    expect(branchDelta("a and b and c", "a and b")).toBe("c")
+  })
+  it("machine output becomes a plain label; the raw text is kept for 技術細節", () => {
+    const s = { ...flowSteps(buildModel(sample.map, sample.overlay), "flow:checkout").steps[1], business_label: undefined, technical_label: "dynamic call _() → one of: unresolved: _" }
+    const v = stepView(s)
+    expect(v.label).toBe("動態呼叫（無法靜態判定目標）")
+    expect(v.machine).toBe("dynamic call _() → one of: unresolved: _")
   })
 })

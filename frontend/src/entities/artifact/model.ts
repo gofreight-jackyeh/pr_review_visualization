@@ -188,14 +188,31 @@ export interface StepView {
   evidenceStatus: OverlayStep["evidence_status"]
   branch?: string
   evidenceRefs: string[]
+  /** machine-generated wording behind `label` (e.g. "dynamic call _() → one of: …"); shown only under 「技術細節」 */
+  machine?: string
 }
+/** Machine output that is not a sentence a reader can use: replaced by a plain label, the raw text kept as `machine`. */
+const MACHINE_LABEL = /^dynamic call .*→ one of:/
 /** Which capability/entity a step lights up, and which label is shown (business first, technical fallback). */
 export function stepView(s: OverlayStep): StepView {
   const biz = s.business_label?.text
+  const machine = !biz && MACHINE_LABEL.test(s.technical_label) ? s.technical_label : undefined
   return {
-    capabilityId: s.capability_id, entityId: s.entity_id, label: biz ?? s.technical_label, fromBusiness: !!biz, technical: s.technical_label,
+    machine, capabilityId: s.capability_id, entityId: s.entity_id, label: biz ?? (machine ? "動態呼叫（無法靜態判定目標）" : s.technical_label), fromBusiness: !!biz, technical: s.technical_label,
     status: s.step_change_status, evidenceStatus: s.evidence_status, branch: s.branch?.condition, evidenceRefs: s.evidence_refs,
   }
+}
+
+/**
+ * Branch condition of a step relative to the step before it: only the clauses (split on `and` / `&&`) the previous step
+ * did not already have. Same condition as before -> "" (caller shows 「同上」); no previous branch -> the full condition.
+ */
+export function branchDelta(cur: string | undefined, prev: string | undefined): string {
+  if (!cur) return ""
+  if (!prev) return cur
+  const clauses = (c: string) => c.split(/\s+(?:and|&&)\s+/i).map((x) => x.trim()).filter(Boolean)
+  const had = new Set(clauses(prev))
+  return clauses(cur).filter((x) => !had.has(x)).join(" 且 ")
 }
 
 export interface FlowItem { flow: Flow; change: ChangeStatus; impact: ImpactStatus; related: boolean }

@@ -79,13 +79,14 @@ export function App() {
   const overlayParam = params.get("overlay")
   const analysisParam = params.get("analysis")
 
+  const [loading, setLoading] = useState(false)
   const load = async (overlayId: string, analysisId?: string | null) => {
-    setError(null)
+    setError(null); setLoading(true) // show the loading state at once: the system map can take seconds to download
     try {
       const { overlay, map }: { overlay: PrOverlay; map: SystemMap } = await loadOverlayWithMap(overlayId)
-      history.replaceState(null, "", overlayUrl(overlayId, analysisId))
+      history.replaceState(null, "", overlayUrl(overlayId, analysisId) + window.location.hash) // keep #view: the provider reads it on mount
       setLoaded({ model: buildModel(map, overlay), fixture: null, analysisId })
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setLoading(false) }
   }
   useEffect(() => { if (overlayParam && !loaded) void load(overlayParam, analysisParam) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -114,7 +115,7 @@ export function App() {
       {error && (
         <div className="banner" role="alert">{error}{overlayParam && <> <button onClick={() => void load(overlayParam, analysisParam)}>重試載入</button></>}</div>
       )}
-      {overlayParam && !error ? <p className="pad">載入分析結果…</p>
+      {(overlayParam || loading) && !error ? <p className="pad">載入分析結果…</p>
         : fixtureName === "failed" ? <PrInput initialAnalysis={FAILED_ANALYSIS.analysis_id} initialRequest={FAILED_INPUT} poll={async () => FAILED_ANALYSIS} onLoaded={load} />
         : <PrInput initialAnalysis={analysisParam ?? undefined} onLoaded={load} />}
     </div>

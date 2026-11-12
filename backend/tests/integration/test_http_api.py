@@ -83,3 +83,45 @@ def test_host_header_allowlist_blocks_dns_rebinding(home, monkeypatch):
         assert client.get("/api/analyses", headers={"host": host}).status_code == 200, host
     monkeypatch.setenv("PR_EXPLORER_ALLOWED_HOSTS", "*")
     assert TestClient(create_app(build_container(home=home))).get("/api/analyses", headers={"host": "evil.example"}).status_code == 200
+
+
+def test_gzip_workers_and_queue_position(shop_repo, home, monkeypatch):
+    import pytest
+    from pr_explorer.application.use_cases.queries import AnalysisStatus
+    from pr_explorer.interface.http.app import workers_from_env
+
+    client = TestClient(create_app(build_container(home=home)), base_url="http://localhost")
+    body = {"local": {"repo_path": str(shop_repo), "base": "main", "head": "feature/discount"}, "semantic_mode": "off"}
+    st = _wait(client, client.post("/api/analyses", json=body).json()["analysis_id"])
+    r = client.get(f"/api/system-maps/{st['system_map_id']}", headers={"accept-encoding": "gzip"})
+    assert r.headers["content-encoding"] == "gzip" and r.json()["kind"] == "system_map"  # TestClient inflates it
+    assert "content-encoding" not in client.get(f"/api/system-maps/{st['system_map_id']}", headers={"accept-encoding": "identity"}).headers
+
+    monkeypatch.delenv("PR_EXPLORER_WORKERS", raising=False)
+    assert workers_from_env() == 2
+    monkeypatch.setenv("PR_EXPLORER_WORKERS", "4")
+    assert workers_from_env() == 4
+    for bad in ("0", "x", "-1", "99"):
+        monkeypatch.setenv("PR_EXPLORER_WORKERS", bad)
+        with pytest.raises(ValueError):
+            workers_from_env()
+
+    class Repo:  # newest first, as the repository returns it
+        def list(self, limit):
+            return [dict(id=i, status=s, title=None, repo=None, head_sha=None, created_at="", overlay_id=None, system_map_id=None)
+                    for i, s in (("c", "queued"), ("b", "queued"), ("a", "running"), ("z", "done"))]
+    got = {r["analysis_id"]: r["queue_position"] for r in AnalysisStatus(Repo()).list()}
+    assert got == {"c": 2, "b": 1, "a": None, "z": None}
+
+
+def test_page_is_revalidated_and_hashed_assets_are_immutable(home, tmp_path, monkeypatch):
+    """After an upgrade the browser must fetch the new index.html, which names the new hashed bundle."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>")
+    (dist / "assets" / "index-abc123.js").write_text("x")
+    monkeypatch.setenv("PR_EXPLORER_FRONTEND_DIST", str(dist))
+    client = TestClient(create_app(build_container(home=home)), base_url="http://localhost")
+    for path in ("/", "/index.html", "/some/route"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    assert "immutable" in client.get("/assets/index-abc123.js").headers["cache-control"]

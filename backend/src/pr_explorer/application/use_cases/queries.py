@@ -56,7 +56,11 @@ class AnalysisStatus:
                 "overlay_id": r["overlay_id"], "system_map_id": r["system_map_id"]}
 
     def list(self, limit: int = 50) -> list[dict]:
+        rows = self.repo.list(limit)
+        # queue position (1 = next to start) = rank among queued analyses by creation order; derived, not stored
+        waiting = [r["id"] for r in reversed(rows) if r["status"] == "queued"]
         return [{"analysis_id": r["id"], "status": r["status"], "title": r["title"], "repo": r["repo"],
                  "head_sha": r["head_sha"], "created_at": r["created_at"], "overlay_id": r["overlay_id"],
-                 "system_map_id": r["system_map_id"]}
-                for r in self.repo.list(limit)]
+                 "system_map_id": r["system_map_id"],
+                 "queue_position": waiting.index(r["id"]) + 1 if r["status"] == "queued" else None}
+                for r in rows]

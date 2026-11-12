@@ -1,6 +1,7 @@
 {
   "name": "pr-review-explorer-frontend",
   "private": true,
+  "packageManager": "pnpm@11.28.5",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

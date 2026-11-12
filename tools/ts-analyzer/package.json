@@ -2,6 +2,7 @@
   "name": "ts-analyzer",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@11.28.5",
   "type": "module",
   "bin": { "ts-analyzer": "dist/cli.js" },
   "scripts": {

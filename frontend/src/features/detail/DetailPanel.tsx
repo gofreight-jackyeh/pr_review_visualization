@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { Capped } from "./Capped"
 import {
-  descendants, domainName, flowOfEntry, flowSteps, isChanged, namesOf, nameOfId, nodeStatus, stepView, type Model, type StepView,
+  descendants, domainName, flowOfEntry, flowSteps, isChanged, namesOf, nameOfId, nodeStatus, refsOf, refText, stepView, type Model, type StepView,
 } from "@/entities/artifact/model"
 import { statusOf } from "@/entities/artifact/provenance"
 import type { Capability, Component, Entity, EntryPoint, Flow, MapElement } from "@/entities/artifact/types"
@@ -48,6 +48,9 @@ export function StepCard({ c, index, total, m, segment }: { c: StepView; index: 
         {" "}<ElementChip id={c.capabilityId} m={m} />{c.entityId && <ElementChip id={c.entityId} m={m} />}
       </p>
       {c.branch && <p className="small">條件分支：<code>{c.branch}</code>（未確認，路徑待確認）</p>}
+      {/* where the step happens in code, with the PR diff link: here in the detail, not on every line of the step list */}
+      {refsOf(m, c.evidenceRefs).slice(0, 2).map((r) => <RefRow key={`${r.side}:${refText(r)}`} r={r} ov={m.overlay} />)}
+      {c.machine && <details className="small" data-testid="step-tech"><summary>技術細節</summary><code className="tech">{c.machine}</code></details>}
       <p className="disclaimer small">由靜態分析重建，不是實際執行紀錄</p>
     </section>
   )

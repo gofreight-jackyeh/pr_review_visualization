@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { DISCLAIMER, nameOfId, namesOf, stepView, type Model } from "@/entities/artifact/model"
+import { DISCLAIMER, branchDelta, nameOfId, namesOf, stepView, type Model } from "@/entities/artifact/model"
 import { statusOf } from "@/entities/artifact/provenance"
 import type { FlowView, OverlayStep } from "@/entities/artifact/types"
 import { highlightOf, useExplorer } from "@/app/store"
@@ -16,12 +16,13 @@ const inSide = (s: OverlayStep, side: Side) => !side || (side === "before" ? s.s
 /** added / removed / changed are labelled by glyph and word, not colour alone. */
 export const STEP_GLYPH: Record<OverlayStep["step_change_status"], string> = { added: "+", removed: "−", changed: "~", unchanged: "" }
 
-function StepRow({ s, i, m }: { s: OverlayStep; i: number; m: Model }) {
+function StepRow({ s, i, m, prev }: { s: OverlayStep; i: number; m: Model; prev?: OverlayStep }) {
   const ex = useExplorer()
   const p = ex.player
   const v = stepView(s)
   const st = STEP[s.step_change_status]
   const now = p.stepId === s.id
+  const delta = branchDelta(v.branch, prev?.branch?.condition)
   return (
     <li className={`step st-${s.step_change_status} ev-${s.evidence_status}${now ? " now" : ""}`} data-testid={`step-${s.id}`} data-status={s.step_change_status}>
       <button onClick={(e) => { p.setStepId(s.id); ex.openDetail({ kind: "step", id: s.id }, e.currentTarget) }} aria-current={now ? "step" : undefined}>
@@ -30,7 +31,7 @@ function StepRow({ s, i, m }: { s: OverlayStep; i: number; m: Model }) {
           <span className="lbl">{v.label}</span>
           {v.fromBusiness && <code className="tech small"> {v.technical}</code>}
           <span className="muted small"> · {nameOfId(m, s.capability_id).primary}{s.entity_id ? ` / ${nameOfId(m, s.entity_id).primary}` : ""}</span>
-          {v.branch && <span className="small branch"> 條件：{v.branch}</span>}
+          {v.branch && <span className="small branch" title={v.branch}> 條件：{delta || "同上"}</span>}
         </span>
         {s.step_change_status !== "unchanged" && <span className="chip-tag" style={{ background: st.bg, color: st.color, borderColor: st.color }}>{STEP_GLYPH[s.step_change_status]} {st.label}</span>}
         {s.evidence_status !== "confirmed" && <StatusBadge s={statusOf({ step: s })} />}
@@ -110,7 +111,7 @@ function Expanded({ axis }: { axis: Axis }) {
     <div className="seg-detail" data-testid="seg-detail">
       <div className="row wrap"><b>{s.label}</b><span className="muted small">第 {pg.page * 7 + 1}–{pg.page * 7 + pg.shown.length} 步，共 {s.steps.length} 步</span>
         <span className="source-note">{s.source === "phase" ? "分段：AI 說明" : "分段：依功能（靜態分析）"}；步驟名稱：{biz && tech ? `AI 說明 ${biz} 步、靜態分析（技術名稱）${tech} 步` : biz ? "AI 說明" : "靜態分析（技術名稱）"}</span></div>
-      <ol className="events">{pg.shown.map((x, i) => <StepRow key={x.id} s={x} i={pg.page * 7 + i} m={ex.model} />)}</ol>
+      <ol className="events">{pg.shown.map((x, i) => <StepRow key={x.id} s={x} i={pg.page * 7 + i} m={ex.model} prev={s.steps[pg.page * 7 + i - 1]} />)}</ol>
       <div className="row">
         {pg.page > 0 && <button className="mini" onClick={() => ex.setSegPage(pg.page - 1)}>上一頁</button>}
         {pg.remaining > 0 && <button className="mini" data-testid="more-steps" onClick={() => ex.setSegPage(pg.page + 1)}>再顯示 {Math.min(7, pg.remaining)} 步（還有 {pg.remaining} 步）</button>}

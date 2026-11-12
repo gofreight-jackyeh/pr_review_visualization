@@ -62,7 +62,7 @@ export function IsoNode({ data: d }: NodeProps<MapNodeT>) {
   const ring = ringOf(d)
   const statusLine = d.showStatus ? [d.change !== "unchanged" ? c.label : "", imp?.short ?? ""].filter(Boolean).join(" · ") : ""
   return (
-    <div className="iso" style={{ width: w, height: h + 8, opacity: d.dim ? 0.22 : 1 }} data-testid={`node-${d.primary}`} data-change={d.change} data-step={d.stepState ?? ""}>
+    <div className="iso" title={[d.primary, d.secondary, d.detail].filter(Boolean).join("\n")} style={{ width: w, height: h + 8, opacity: d.dim ? 0.22 : 1 }} data-testid={`node-${d.primary}`} data-change={d.change} data-step={d.stepState ?? ""}>
       <Handle type="target" position={Position.Left} className="hdl" />
       <Handle type="source" position={Position.Right} className="hdl" />
       <svg width={w} height={h + 8} viewBox={`0 0 ${w} ${h + 8}`} role="img" aria-label={`${d.primary}${d.secondary ? " " + d.secondary : ""}, ${d.showStatus ? c.label : ""}${imp ? ", " + imp.label : ""}`}>
@@ -95,7 +95,7 @@ export function DomainNode({ data: d }: NodeProps<MapNodeT>) {
   const imp = d.showStatus && d.impact !== "none" ? IMPACT[d.impact] : null
   const ring = d.stepState === "active" ? ACTIVE : d.stepState ? POSSIBLE : d.selected ? "#111827" : imp ? imp.color : null
   return (
-    <div className={"domain-node" + (d.context ? " ctx" : "") + (d.kind === "bucket" ? " bucket" : "")} data-testid={`domain-${d.primary}`}
+    <div className={"domain-node" + (d.context ? " ctx" : "") + (d.kind === "bucket" ? " bucket" : "")} data-testid={`domain-${d.primary}`} title={[d.primary, d.secondary].filter(Boolean).join("\n")}
       style={{ width: d.w, height: d.h, opacity: d.dim ? 0.25 : 1, borderColor: c.stroke, background: c.top, boxShadow: ring ? `0 0 0 3px ${ring}` : undefined }}>
       <Handle type="target" position={Position.Left} className="hdl" />
       <Handle type="source" position={Position.Right} className="hdl" />

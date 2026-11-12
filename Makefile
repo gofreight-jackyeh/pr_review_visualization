@@ -4,6 +4,8 @@
 #   make stop    stop it
 HOST ?= 0.0.0.0
 PORT ?= 8766
+# pnpm on PATH if there is one; otherwise through corepack (ships with Node; version pinned by "packageManager" in package.json)
+PNPM := $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo corepack pnpm)
 
 .PHONY: help setup start stop test demo clean check-tools
 
@@ -16,15 +18,16 @@ help:
 	@echo "make clean   remove build outputs (keeps ~/.pr-explorer analysis data)"
 
 check-tools:
-	@for t in git uv node pnpm; do command -v $$t >/dev/null || { echo "missing: $$t"; exit 1; }; done
+	@for t in git uv node; do command -v $$t >/dev/null || { echo "missing: $$t"; exit 1; }; done
+	@command -v pnpm >/dev/null || command -v corepack >/dev/null || { echo "missing: pnpm (or corepack)"; exit 1; }
 	@node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a==22&&b>=12)?0:1)' || { echo "Node >= 22.12 required"; exit 1; }
 	@command -v gh >/dev/null || echo "note: gh not found — GitHub PR URLs won't work (local repo mode still does)"
 	@command -v claude >/dev/null || echo "note: claude not found — business explanations will be unavailable"
 
 setup: check-tools
 	cd backend && uv sync
-	cd tools/ts-analyzer && pnpm install --frozen-lockfile && pnpm build
-	cd frontend && pnpm install --frozen-lockfile && pnpm build
+	cd tools/ts-analyzer && $(PNPM) install --frozen-lockfile && $(PNPM) build
+	cd frontend && $(PNPM) install --frozen-lockfile && $(PNPM) build
 
 # Builds the UI first if it is missing, so `make start` also works right after a fresh clone + `make setup`.
 start:
@@ -37,8 +40,8 @@ stop:
 
 test:
 	cd backend && uv run pytest -q
-	cd frontend && pnpm typecheck && pnpm test
-	cd tools/ts-analyzer && pnpm test
+	cd frontend && $(PNPM) typecheck && $(PNPM) test
+	cd tools/ts-analyzer && $(PNPM) test
 
 demo:
 	cd backend && uv run python tests/fixtures/make_django_fixture.py
