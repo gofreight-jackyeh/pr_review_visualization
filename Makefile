@@ -1,9 +1,12 @@
 # PR Review Explorer — one-command setup and start.
 #   make setup   install dependencies and build the UI + TS analyzer
-#   make start   run the app (http://127.0.0.1:8766, reachable on the LAN)
+#   make start   run the app in the background (http://127.0.0.1:8766, reachable on the LAN)
 #   make stop    stop it
 HOST ?= 0.0.0.0
 PORT ?= 8766
+LOG ?= $(or $(PR_EXPLORER_HOME),$(HOME)/.pr-explorer)/logs/server-$(PORT).log
+# the address `make start` polls to know the server is up (0.0.0.0 listens on loopback too)
+CHECK_HOST := $(if $(filter 0.0.0.0 ::,$(HOST)),127.0.0.1,$(HOST))
 # pnpm on PATH if there is one; otherwise through corepack (ships with Node; version pinned by "packageManager" in package.json)
 PNPM := $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo corepack pnpm)
 
@@ -11,7 +14,7 @@ PNPM := $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo corepack pn
 
 help:
 	@echo "make setup   install deps, build frontend and ts-analyzer"
-	@echo "make start   start the server on $(HOST):$(PORT) (HOST=127.0.0.1 for this machine only)"
+	@echo "make start   start the server in the background on $(HOST):$(PORT) (HOST=127.0.0.1 for this machine only); log: $(LOG)"
 	@echo "make stop    stop the server on port $(PORT)"
 	@echo "make test    run backend, frontend and ts-analyzer tests"
 	@echo "make demo    build the sample Django repo under .data/fixtures/shop to try local mode"
@@ -32,11 +35,20 @@ setup: check-tools
 # Builds the UI first if it is missing, so `make start` also works right after a fresh clone + `make setup`.
 start:
 	@test -f frontend/dist/index.html || $(MAKE) setup
-	cd backend && uv run pr-explorer serve --host $(HOST) --port $(PORT)
+	@if pgrep -f '[p]r-explorer serve .*--port $(PORT)( |$$)' >/dev/null; then echo "a server is already running on port $(PORT) (make stop first)"; exit 1; fi
+	@mkdir -p "$(dir $(LOG))"
+	@cd backend && nohup uv run pr-explorer serve --host $(HOST) --port $(PORT) >"$(LOG)" 2>&1 &
+	@for i in $$(seq 1 60); do curl -s -o /dev/null "http://$(CHECK_HOST):$(PORT)/api/config" && break; sleep 0.5; done; \
+	 if curl -s -o /dev/null "http://$(CHECK_HOST):$(PORT)/api/config"; then \
+	   echo "running in the background: http://$(CHECK_HOST):$(PORT)  (log: $(LOG); stop: make stop)"; \
+	 else echo "the server did not start; last log lines:"; tail -20 "$(LOG)"; exit 1; fi
 
 # Matches `pr-explorer serve ... --port $(PORT)` (also the `uv run` wrapper); "[p]" keeps pkill off this shell's own command line.
 stop:
-	@pkill -f '[p]r-explorer serve .*--port $(PORT)( |$$)' && echo "stopped the server on port $(PORT)" || echo "no server running on port $(PORT)"
+	@if pkill -f '[p]r-explorer serve .*--port $(PORT)( |$$)'; then \
+	   for i in $$(seq 1 20); do pgrep -f '[p]r-explorer serve .*--port $(PORT)( |$$)' >/dev/null || break; sleep 0.5; done; \
+	   echo "stopped the server on port $(PORT)"; \
+	 else echo "no server running on port $(PORT)"; fi
 
 test:
 	cd backend && uv run pytest -q

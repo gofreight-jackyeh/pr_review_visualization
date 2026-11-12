@@ -15,7 +15,7 @@ Paste a GitHub PR URL, or open "Local repo mode" and give a repo path plus base/
 
 Try it without GitHub: `make demo`, then use local repo mode with the printed path, base `main`, head `feature/discount`.
 
-Generated explanations are in Traditional Chinese by default, matching the UI; `PR_EXPLORER_LANG=en` writes English and `PR_EXPLORER_LANG=auto` follows the repository's own language (Chinese when its docs / PR are Chinese). Follow-up questions: the 「問 AI」 button (every tab) asks Claude about the PR you are reading; answers cite the analysis' evidence and are labelled as AI interpretation. `PR_EXPLORER_ASK=local` (default) lets only browsers on this machine ask, `all` lets every client ask, `off` hides the feature. `make stop` stops the server. Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port (stop it with the same `PORT=… make stop`).
+Generated explanations are in Traditional Chinese by default, matching the UI; `PR_EXPLORER_LANG=en` writes English and `PR_EXPLORER_LANG=auto` follows the repository's own language (Chinese when its docs / PR are Chinese). Follow-up questions: the 「問 AI」 button (every tab) asks Claude about the PR you are reading; answers cite the analysis' evidence and are labelled as AI interpretation. `PR_EXPLORER_ASK=local` (default) lets only browsers on this machine ask, `all` lets every client ask, `off` hides the feature. `make start` runs the server in the background and prints its URL; output goes to `~/.pr-explorer/logs/server-<port>.log`. `make stop` stops the server. Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port (stop it with the same `PORT=… make stop`).
 
 ## What it will and won't claim
 
