@@ -34,7 +34,7 @@ from ...domain.services.rings import detect_interfaces, diff_interfaces
 from ...domain.services.domains import MIN_BUSINESS_FOR_CLAUDE, apply_domains, business, domain_digest, gate_domains
 from ...domain.services.graph_diff import diff_graphs
 from ...domain.services.impact_propagation import propagate_impact
-from ...domain.services.map_reuse import ReusePlan, capability_fingerprints, reuse_texts, skeleton
+from ...domain.services.map_reuse import ReusePlan, capability_fingerprints, donor_language, reuse_texts, skeleton
 from ...domain.services.overlay_builder import MapIndex, OverlayBuilder, static_behavior_changes
 from ...domain.services.semantic_digest import (
     capability_batches, detect_language, phase_batches, phase_digest, pr_digest, relevant_rules, system_map_digest,
@@ -102,6 +102,11 @@ class PipelineConfig:
     phase_batch: int = 10  # flows per Claude phase call ...
     phase_chars: int = 24_000  # ... and at most this many characters of flow data
     semantic_parallel: int = 4  # concurrent Claude system-map calls
+    # language of every generated text: "zh-Hant" | "en" | "auto" (zh-Hant when the repo docs / PR are Chinese, else en)
+    output_language: str = "zh-Hant"
+
+    def language(self, *texts: str) -> str:
+        return detect_language(*texts) if self.output_language == "auto" else self.output_language
 
 
 @dataclass
@@ -317,7 +322,7 @@ class Pipeline:
         docs = [(f"ev:doc:base:{d.path}", d) for d in knowledge.excerpts]
         doc_ev = {eid: Evidence(eid, "doc", f"Repository document {d.path}", [CodeRef("base", d.path, 1, d.end_line)], DOC_PRODUCER)
                   for eid, d in docs}
-        lang = detect_language(*(d.text for _, d in docs))
+        lang = self.d.config.language(*(d.text for _, d in docs))
         st = build_structure(sg, self.d.language_of, lang=lang)
         flows, built = build_flows(sg, st, self.d.config.flow_budget)
         contracts, contract_notes = self.d.knowledge.contracts(ws.base_root, ws.base_files)
@@ -356,7 +361,7 @@ class Pipeline:
         sources = list(dict.fromkeys(["repo:code"] + knowledge.sources))
         smap = copy.deepcopy(static)
         try:
-            plan = self._reuse(ctx, smap)
+            plan = self._reuse(ctx, smap, lang)
         except Exception as exc:  # reuse is an optimisation: on any surprise explain everything
             smap, plan = copy.deepcopy(static), self._fresh_plan(static, [f"reuse skipped: {type(exc).__name__}: {exc}"[:200]])
         need_domains = not plan.domains_reused and len(business(smap.capabilities)) >= MIN_BUSINESS_FOR_CLAUDE
@@ -418,7 +423,7 @@ class Pipeline:
         plan.reasons = reasons
         return plan
 
-    def _reuse(self, ctx: Context, smap: SystemMap) -> ReusePlan:
+    def _reuse(self, ctx: Context, smap: SystemMap, lang: str = "") -> ReusePlan:
         """Texts from the most recent earlier map of this repo whose commit is an ancestor of the new base (else the
         most recent one). Any stored 2.x map donates, whatever its analyzer version: every text is re-validated."""
         rows = [r for r in self.d.repo.list_system_maps(ctx.pr.repo_key)
@@ -430,6 +435,8 @@ class Pipeline:
             try:
                 donor = self.d.store.load_system_map(r["id"])
                 if not donor or donor.get("kind") != "system_map" or not str(donor.get("schema_version", "")).startswith("2."):
+                    continue
+                if lang and donor_language(donor) != lang:  # reused texts must already be in the output language
                     continue
                 donor_fp = capability_fingerprints(donor, self.d.source.blobs(ctx.pr, donor["commit_sha"]), self.d.language_of)
             except Exception:  # unreadable / foreign document or commit gone from the cache: try the next one
@@ -630,7 +637,7 @@ class Pipeline:
         # documented rules come from the merge-base: a PR cannot rewrite the rules that judge it (its edits to them
         # are a static finding, documented_rules_changed)
         ctx.knowledge = self.d.knowledge.collect(ws.base_root, ws.base_files, ctx.request.context_docs)
-        ctx.lang = detect_language(ctx.pr.title, ctx.pr.body, *(d.text for d in ctx.knowledge.excerpts[:2]))
+        ctx.lang = self.d.config.language(ctx.pr.title, ctx.pr.body, *(d.text for d in ctx.knowledge.excerpts[:2]))
         findings, fev = find_static_issues(g, ctx.files, ctx.lang)
         b.map_findings(findings, ctx.flow_nodes, ctx.lang)
         ctx.findings = findings

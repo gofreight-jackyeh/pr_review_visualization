@@ -17,6 +17,12 @@ def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
+@pytest.fixture(autouse=True)
+def _language_follows_repo(monkeypatch):
+    """The English fixture and fake replies predate the zh-Hant default; tests/unit/test_output_language.py covers it."""
+    monkeypatch.setenv("PR_EXPLORER_LANG", "auto")
+
+
 @pytest.fixture(scope="session")
 def shop_repo(tmp_path_factory) -> Path:
     return make_django_fixture.build(tmp_path_factory.mktemp("fixture") / "shop")

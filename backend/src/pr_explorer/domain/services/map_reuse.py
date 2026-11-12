@@ -18,6 +18,7 @@ from typing import Callable
 
 from ..model.document import Phase, SystemMap, Text
 from ..model.ids import short_hash
+from .semantic_digest import detect_language
 from .domains import reuse_domains
 from .semantic_gate import phase_flows
 from .system_structure import group_capabilities
@@ -175,3 +176,21 @@ def reuse_texts(smap: SystemMap, donor: dict | None, new_fp: dict[str, str], don
 
 
 __all__ = ["ReusePlan", "SUMMARY_REUSE_MAX_CHANGED", "capability_fingerprints", "reuse_texts", "skeleton"]
+
+
+def donor_language(doc: dict) -> str:
+    """Language an earlier map's Claude texts are written in, detected like repository text (zh-Hant / en)."""
+    texts: list[str] = []
+
+    def walk(v: object) -> None:
+        if isinstance(v, dict):
+            if v.get("source") == "semantic" and isinstance(v.get("text"), str):
+                texts.append(v["text"])
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+
+    walk(doc)
+    return detect_language(*texts[:200])

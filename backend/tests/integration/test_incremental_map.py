@@ -8,11 +8,19 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from conftest import git, load_docs, local_request
 from fakes import RecordingRunner, SmartClaude, call_kind, claude_envelope, ordered, prompt_data
 
 from pr_explorer.application.pipeline import PipelineConfig
 from pr_explorer.bootstrap import build_container
+
+
+@pytest.fixture(autouse=True)
+def _english(monkeypatch):
+    """SmartClaude replies in English; reuse only takes donor texts in the output language."""
+    monkeypatch.setenv("PR_EXPLORER_LANG", "en")
 from pr_explorer.infrastructure.process.runner import SubprocessRunner
 from pr_explorer.infrastructure.source.git_cache import GitCache
 
@@ -94,7 +102,7 @@ def test_map_batches_run_in_parallel_with_bounded_concurrency(shop_repo, home):
             state["now"] -= 1
         return smart(args, prompt)
 
-    c = build_container(home=home, claude_runner=RecordingRunner(slow), config=PipelineConfig(capability_batch=1))
+    c = build_container(home=home, claude_runner=RecordingRunner(slow), config=PipelineConfig(capability_batch=1, output_language="en"))
     t0 = time.monotonic()
     paths, _ = c.analyze.analyze_sync(local_request(shop_repo, mode="standard"))
     smap, _ = load_docs(paths)

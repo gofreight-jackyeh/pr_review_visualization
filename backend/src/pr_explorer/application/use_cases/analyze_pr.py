@@ -22,17 +22,19 @@ from ..ports import AnalysisRepository, AnalysisRequest, ResolvedPr, SourceError
 from .errors import AcquireFailed, InvalidInput
 
 
-def cache_key(pr: ResolvedPr, analyzer_version: str, semantic_mode: str, context_docs=()) -> str:
+def cache_key(pr: ResolvedPr, analyzer_version: str, semantic_mode: str, context_docs=(), lang: str = "auto") -> str:
     """Overlay key. Attached docs change the overlay (knowledge sources, architecture context, the Claude prompt),
     so an order-independent hash of (name, content) is part of the key; omitted when there are none."""
-    parts = [pr.repo_key, pr.merge_base_sha, pr.head_sha, analyzer_version, SCHEMA_VERSION, semantic_mode]
+    parts = [pr.repo_key, pr.merge_base_sha, pr.head_sha, analyzer_version, SCHEMA_VERSION, semantic_mode, f"lang:{lang}"]
     if context_docs:
         parts.append("docs:" + short_hash(*sorted(short_hash(d.name, d.content, length=64) for d in context_docs), length=20))
     return "|".join(parts)
 
 
-def system_map_key(pr: ResolvedPr, analyzer_version: str, semantic_on: bool) -> str:
-    return "|".join([pr.repo_key, pr.merge_base_sha, analyzer_version, SCHEMA_VERSION, "semantic" if semantic_on else "static"])
+def system_map_key(pr: ResolvedPr, analyzer_version: str, semantic_on: bool, lang: str = "auto") -> str:
+    # the language sits before the last part: donor lookup matches keys ending in "|semantic"
+    return "|".join([pr.repo_key, pr.merge_base_sha, analyzer_version, SCHEMA_VERSION, f"lang:{lang}",
+                     "semantic" if semantic_on else "static"])
 
 
 def validate_request(req: AnalysisRequest) -> None:
@@ -53,6 +55,7 @@ class AnalyzePr:
         self.repo = repo
         self.pipeline = pipeline
         self.analyzer_version = ports.ANALYZER_VERSION
+        self.output_language = pipeline.d.config.output_language  # part of both cache keys
         self.pipeline_runs = 0
         self._pending: dict[str, tuple[AnalysisRequest, ResolvedPr, str]] = {}
         self._lock = threading.Lock()
@@ -64,7 +67,7 @@ class AnalyzePr:
             pr = self.source.resolve(req)
         except SourceError as exc:
             raise AcquireFailed(str(exc)) from exc
-        key = cache_key(pr, self.analyzer_version, req.semantic_mode, req.context_docs)
+        key = cache_key(pr, self.analyzer_version, req.semantic_mode, req.context_docs, self.output_language)
         aid = f"a_{uuid.uuid4().hex[:16]}"
         req_dict = dataclasses.asdict(req)
         req_dict["context_docs"] = [{"name": d.name} for d in req.context_docs]  # don't persist pasted contents
@@ -83,7 +86,7 @@ class AnalyzePr:
         with self._lock:
             req, pr, key = self._pending.pop(analysis_id)
         self.pipeline_runs += 1
-        sm_key = system_map_key(pr, self.analyzer_version, req.semantic_mode != "off")
+        sm_key = system_map_key(pr, self.analyzer_version, req.semantic_mode != "off", self.output_language)
         overlay_id = f"ov_{short_hash(key, length=20)}"
         system_map_id = f"sm_{short_hash(sm_key, length=20)}"
         ctx = Context(analysis_id, req, pr, key, overlay_id, sm_key, system_map_id, self.analyzer_version)

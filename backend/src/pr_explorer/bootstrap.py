@@ -47,6 +47,17 @@ class Container:
     prune_worktrees: Callable[[], list[Path]]  # server start: drop worktrees left by earlier runs (regenerable)
 
 
+LANGUAGES = ("zh-Hant", "en", "auto")
+
+
+def output_language_from_env() -> str:
+    """PR_EXPLORER_LANG: language of generated texts — zh-Hant (default, matches the UI), en, or auto (follow the repo)."""
+    lang = (os.environ.get("PR_EXPLORER_LANG") or "zh-Hant").strip()
+    if lang not in LANGUAGES:
+        raise ValueError(f"PR_EXPLORER_LANG must be one of {', '.join(LANGUAGES)}; got {lang!r}")
+    return lang
+
+
 def build_container(
     home: Path | None = None,
     runner: CommandRunner | None = None,
@@ -77,7 +88,7 @@ def build_container(
         store=store,
         repo=repo,
         language_of=detect_language,
-        config=config or PipelineConfig(),
+        config=config or PipelineConfig(output_language=output_language_from_env()),
     )
     return Container(
         home=home,
