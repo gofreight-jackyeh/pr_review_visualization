@@ -3,7 +3,8 @@ import Ajv2020 from "ajv/dist/2020.js"
 import addFormats from "ajv-formats"
 import schema from "../../../../schemas/artifact/v2/artifact.schema.json"
 import { empty, large, partial, pending, sample, sampleNoSemantic, type FixturePair } from "../../fixtures"
-import { buildModel, deriveSteps, flowList, flowSteps, githubEvidenceUrl, namesOf, stepView } from "./model"
+import { buildModel, deriveSteps, flowList, flowSteps, githubEvidenceUrl, namesOf, prDiffUrl, stepView } from "./model"
+import { sha256Hex } from "@/shared/lib/sha256"
 import { INSUFFICIENT, matchQuestion } from "@/features/guide/matcher"
 import { buildScene } from "@/features/system-map/scene"
 import { getLayout, placeNodes } from "@/features/system-map/graph"
@@ -184,5 +185,32 @@ describe("layout", () => {
     expect(sys.has("cap:audit")).toBe(false) // head-only: hidden in system / before, present in overlay / after
     expect(ov.has("cap:audit") && after.has("cap:audit") && !before.has("cap:audit")).toBe(true)
     expect(await getLayout(m, scene)).toBe(layout) // cached
+  })
+})
+
+describe("PR diff links (GitHub Files changed anchors)", () => {
+  const ov = sample.overlay
+  // expected hashes from Python hashlib.sha256
+  const ORDERS = "538ef80e5a25a1a6579efb8635941b79ebc2396e34e67ab038033cd3494e237b"
+  it("sha256 matches known vectors (empty, multi-block, UTF-8)", () => {
+    expect(sha256Hex("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    expect(sha256Hex("a".repeat(1000))).toBe("41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3")
+    expect(sha256Hex("src/路徑/檔案.ts")).toBe("d72ad7b318c575e4097e84f2f2b5861723e50ce90e780def0059e9da62b8e819")
+  })
+  it("head side → R<line>, base side → L<line>, no line → the file", () => {
+    expect(prDiffUrl(ov, { side: "head", path: "app/orders/views.py", start_line: 12 })).toBe(`https://github.com/acme/shop/pull/482/files#diff-${ORDERS}R12`)
+    expect(prDiffUrl(ov, { side: "base", path: "app/orders/views.py", start_line: 3 })).toBe(`https://github.com/acme/shop/pull/482/files#diff-${ORDERS}L3`)
+    expect(prDiffUrl(ov, { path: "app/orders/views.py" })).toBe(`https://github.com/acme/shop/pull/482/files#diff-${ORDERS}`)
+  })
+  it("a renamed file's base path anchors on its new path", () => {
+    const o = structuredClone(ov)
+    o.changes.files[0] = { ...o.changes.files[0], status: "renamed", old_path: "app/orders/old_views.py" }
+    expect(prDiffUrl(o, { side: "base", path: "app/orders/old_views.py", start_line: 3 })).toBe(`https://github.com/acme/shop/pull/482/files#diff-${ORDERS}L3`)
+  })
+  it("no link for local PRs, a PR without URL, or a file this PR does not change", () => {
+    expect(prDiffUrl({ ...ov, pr: { ...ov.pr, source: "local" } }, { side: "head", path: "app/orders/views.py", start_line: 12 })).toBeNull()
+    expect(prDiffUrl({ ...ov, pr: { ...ov.pr, url: undefined } }, { path: "app/orders/views.py" })).toBeNull()
+    expect(prDiffUrl(ov, { side: "base", path: "app/inventory/never_changed.py", start_line: 40 })).toBeNull()
+    expect(prDiffUrl(null, { path: "app/orders/views.py" })).toBeNull()
   })
 })

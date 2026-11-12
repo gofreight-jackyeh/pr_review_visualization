@@ -1,3 +1,4 @@
+import { sha256Hex } from "@/shared/lib/sha256"
 import type {
   ArchCheck, ArchRule, Capability, ChangeStatus, CodeRef, Component, Domain, ElementKind, Entity, EntryPoint, Evidence, Flow, FlowChange, FlowView, Impact,
   ImpactStatus, Interface, MapElement, MapView, OverlayStep, PrOverlay, StepStatus, SystemMap,
@@ -211,10 +212,32 @@ export function flowList(m: Model): FlowItem[] {
 // ---------- evidence ----------
 export const refRange = (r: CodeRef) => (r.end_line && r.end_line !== r.start_line ? `${r.start_line}-${r.end_line}` : `${r.start_line}`)
 export const refText = (r: CodeRef) => `${r.path}:${refRange(r)}`
+/** Code locations behind evidence ids, without duplicates. */
+export function refsOf(m: Model, evidenceIds: string[]): CodeRef[] {
+  const seen = new Set<string>()
+  return evidenceIds.flatMap((id) => m.evidence.get(id)?.refs ?? []).filter((r) => {
+    const k = `${r.side}:${refText(r)}`
+    return !seen.has(k) && !!seen.add(k)
+  })
+}
 
 /** GitHub blob link: base side resolves at merge_base_sha, head side at head_sha (spec §4 Evidence). */
 export function githubEvidenceUrl(pr: PrOverlay["pr"] | null | undefined, r: CodeRef): string | null {
   if (!pr || pr.source !== "github" || !pr.repo.owner) return null
   const sha = r.side === "base" ? pr.merge_base_sha : pr.head_sha
   return `https://github.com/${pr.repo.owner}/${pr.repo.name}/blob/${sha}/${r.path}#L${r.start_line}`
+}
+
+/**
+ * GitHub 「Files changed」 link at a line of the PR diff: `<pr>/files#diff-<sha256(path)>R<line>` (head) / `L<line>` (base),
+ * or just the file without a line. Only for GitHub PRs and files this PR changes (other paths have no diff anchor);
+ * a base-side ref of a renamed file uses the new path, as GitHub does.
+ */
+export function prDiffUrl(ov: Pick<PrOverlay, "pr" | "changes"> | null | undefined, r: { path: string; side?: CodeRef["side"]; start_line?: number }): string | null {
+  const url = ov?.pr.source === "github" ? ov.pr.url?.replace(/\/+$/, "") : undefined
+  if (!url) return null
+  const file = ov!.changes.files.find((f) => f.path === r.path || (r.side === "base" && f.old_path === r.path))
+  if (!file) return null
+  const line = r.start_line ? `${r.side === "base" ? "L" : "R"}${r.start_line}` : ""
+  return `${url}/files#diff-${sha256Hex(file.path)}${line}`
 }

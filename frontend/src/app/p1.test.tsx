@@ -124,7 +124,8 @@ describe("審查重點 cards", () => {
     expect(race.querySelector(".status-badge")!.textContent).toContain("已確認的結構事實")
     expect(race.querySelector(".source-note")!.textContent).toBe("來源：靜態分析")
     expect(race.textContent).toContain("app/discounts/services.py")
-    expect(race.querySelector("a")?.getAttribute("href")).toContain("github.com/acme/shop/blob/")
+    expect(race.querySelector("[data-testid=diff-link]")?.getAttribute("href")).toBe("https://github.com/acme/shop/pull/482/files#diff-d813cb099583520c30550e6ce8d323ab754bd19e6c1d1b31afc564a935071ef3R61")
+    expect([...race.querySelectorAll("a")].some((a) => a.getAttribute("href")!.includes("github.com/acme/shop/blob/"))).toBe(true)
     // findings grouped by status, not by source
     expect(tid(root, "findings-needs_confirmation")!.querySelectorAll(".review-card").length).toBe(2)
     expect(tid(root, "findings-confirmed")!.querySelectorAll(".review-card").length).toBe(2)

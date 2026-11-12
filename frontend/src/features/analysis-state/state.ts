@@ -53,3 +53,7 @@ export function scopeLine(m: Model): string {
   else if (st.includes("unavailable")) parts.push("未包含：AI 業務說明（業務說明不可用）")
   return parts.join("；")
 }
+
+/** Why a text has no AI version: 「尚未產生」 while pending, otherwise 「不可用」 (failed, turned off, skipped or not produced). */
+export const aiMissing = (m: Model): "pending" | "unavailable" => (analysisStates(m).includes("pending") ? "pending" : "unavailable")
+export const AI_MISSING: Record<ReturnType<typeof aiMissing>, string> = { pending: "尚未產生", unavailable: "不可用" }

@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react"
 import { Capped } from "./Capped"
 import {
-  descendants, domainName, flowOfEntry, flowSteps, isChanged, namesOf, nameOfId, nodeStatus, refText, stepView, type Model, type StepView,
+  descendants, domainName, flowOfEntry, flowSteps, isChanged, namesOf, nameOfId, nodeStatus, stepView, type Model, type StepView,
 } from "@/entities/artifact/model"
 import { statusOf } from "@/entities/artifact/provenance"
 import type { Capability, Component, Entity, EntryPoint, Flow, MapElement } from "@/entities/artifact/types"
 import { useExplorer, type Selection } from "@/app/store"
-import { Chip, CopyButton, SourceNote, StatusBadge, TextBlock } from "@/shared/ui/ui"
+import { Chip, RefRow, SourceNote, StatusBadge, TextBlock } from "@/shared/ui/ui"
+import { isStaticBehavior } from "@/features/changes/cards"
 import { CHANGE, KIND_LABEL, STEP } from "@/features/system-map/style"
 import { SHARED_BUCKET, ENGINEERING_BUCKET } from "@/features/system-map/scene"
 import { ArchCard, RingChip } from "@/features/architecture/Architecture"
@@ -134,7 +135,7 @@ function CapabilityLists({ c }: { c: Capability }) {
       ))}
       <h4>技術元件（{comps.length || c.component_count || 0}）</h4>
       {comps.length ? <ul className="plain small"><Capped id={`comps:${c.id}`} items={comps} limit={8} render={(x: Component) => (
-        <li key={x.id}><code className="tech">{x.technical_name}</code> {x.description?.text} {x.refs[0] ? <><code className="tech">{refText(x.refs[0])}</code><CopyButton text={refText(x.refs[0])} /></> : <span className="muted">外部相依</span>}</li>
+        <li key={x.id}><code className="tech">{x.technical_name}</code> {x.description?.text} {x.refs[0] ? <RefRow r={x.refs[0]} ov={m.overlay} /> : <span className="muted">外部相依</span>}</li>
       )} /></ul> : <p className="muted small">{c.component_count ? "這份分析沒有列出元件明細。" : "—"}</p>}
       <p className="muted small">技術路徑：<code>{c.path}</code></p>
       <h4>依賴關係（{rels.length}）<span className="muted small"> 靜態程式依賴，不代表執行順序</span></h4>
@@ -155,7 +156,7 @@ function ElementDetail({ el, kind }: { el: MapElement; kind: "capability" | "ent
   const flow: Flow | undefined = fl ?? (kind === "flow" ? (el as Flow) : undefined)
   const cat = kind === "capability" ? (el as Capability).category : null
   const checks = kind === "capability" ? m.archChecks.filter((a) => a.capability_ids.some((x) => descendants(m, el.id).includes(x))) : []
-  const bcs = (m.overlay?.behavior_changes ?? []).filter((b) => b.capability_ids.includes(el.id) || b.flow_ids.includes(el.id) || (!!fl && b.flow_ids.includes(fl.id)))
+  const bcs = (m.overlay?.behavior_changes ?? []).filter((b) => !isStaticBehavior(b)).filter((b) => b.capability_ids.includes(el.id) || b.flow_ids.includes(el.id) || (!!fl && b.flow_ids.includes(fl.id)))
   return (
     <div>
       <p className="muted small">{KIND_LABEL[kind]}{cat && cat !== "business" ? `（${cat === "shared" ? "共用基礎" : "工程與工具"}）` : ""}{kind !== "capability" && capId ? <> · 所屬 <ElementChip id={capId} m={m} /></> : null}

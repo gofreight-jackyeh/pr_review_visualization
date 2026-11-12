@@ -1,6 +1,6 @@
 {
   "kind": "pr_overlay",
-  "schema_version": "2.2.0",
+  "schema_version": "2.3.0",
   "analyzer_version": "2.2.0-fixture",
   "overlay_id": "ov_sample_nosemantic",
   "system_map_id": "sm_sample_nosemantic",
@@ -10,7 +10,7 @@
     "url": "https://github.com/acme/shop/pull/482",
     "number": 482,
     "title": "Add discount code to checkout",
-    "body": "顧客可以在結帳時輸入折扣碼。新增 DiscountCode model 與 audit app，扣款改用折扣後金額，並移除固定 10% 會員折扣。",
+    "body": "## 變更內容\n- 顧客可以在結帳時輸入**折扣碼**\n- 新增 `DiscountCode` model 與 audit app\n- 扣款改用折扣後金額，並移除固定 10% 會員折扣\n\n## 測試\n1. 單元測試：折扣碼驗證與次數累計\n2. 手動測試結帳流程\n\n相關 issue：https://github.com/acme/shop/issues/470",
     "author": "dev",
     "repo": {
       "owner": "acme",
@@ -129,13 +129,62 @@
     ]
   },
   "purpose": {
-    "text": "Add discount code to checkout。顧客可以在結帳時輸入折扣碼。新增 DiscountCode model 與 audit app，扣款改用折扣後金額，並移除固定 10% 會員折扣。",
+    "text": "Add discount code to checkout\n\n## 變更內容\n- 顧客可以在結帳時輸入**折扣碼**\n- 新增 `DiscountCode` model 與 audit app\n- 扣款改用折扣後金額，並移除固定 10% 會員折扣\n\n## 測試\n1. 單元測試：折扣碼驗證與次數累計\n2. 手動測試結帳流程\n\n相關 issue：https://github.com/acme/shop/issues/470",
     "source": "pr_description",
     "evidence_refs": [
       "ev:pr:meta"
     ]
   },
-  "behavior_changes": [],
+  "behavior_changes": [
+    {
+      "id": "bc:static:flow:checkout",
+      "before": {
+        "text": "checkout — 修改前：[removed] apply_member_discount(cart); [changed] charge(cart.total)",
+        "source": "static",
+        "evidence_refs": [
+          "ev:diff:discounts",
+          "ev:step:checkout:3",
+          "ev:diff:payments"
+        ]
+      },
+      "after": {
+        "text": "checkout — 修改後：[added] validate_code(cart.code); [changed] charge(cart.total)",
+        "source": "static",
+        "evidence_refs": [
+          "ev:diff:discounts",
+          "ev:step:checkout:3",
+          "ev:diff:payments"
+        ]
+      },
+      "flow_ids": [
+        "flow:checkout"
+      ],
+      "capability_ids": [
+        "cap:discounts",
+        "cap:payments"
+      ]
+    },
+    {
+      "id": "bc:static:flow:apply_code",
+      "after": {
+        "text": "apply_code — 修改後：[added] 進入 apply_discount_code view; [added] 讀取 Cart; [added] validate_code; [added] code.redeem_count += 1; [added] audit.record",
+        "source": "static",
+        "evidence_refs": [
+          "ev:flow:apply_code",
+          "ev:comp:validate_code",
+          "ev:comp:record"
+        ]
+      },
+      "flow_ids": [
+        "flow:apply_code"
+      ],
+      "capability_ids": [
+        "cap:orders",
+        "cap:discounts",
+        "cap:audit"
+      ]
+    }
+  ],
   "impacts": [
     {
       "target_id": "cap:orders",

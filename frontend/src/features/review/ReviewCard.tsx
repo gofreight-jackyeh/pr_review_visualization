@@ -36,7 +36,7 @@ export function ReviewCard({ id, testid, status, source, confirm, title, caps, f
       )}
       {facts.length > 0 && <div className="rc-facts"><h5>已知事實</h5><ul>{facts.map((f, i) => <li key={i}>{f}</li>)}</ul></div>}
       {uncertain.length > 0 && <div className="rc-uncertain"><h5>不確定之處</h5><ul>{uncertain.map((f, i) => <li key={i}>{f}</li>)}</ul></div>}
-      {refs.filter((r) => r.refs.length).map((r, i) => <div key={i} className="small rc-refs">{r.label && <span className="muted">{r.label}</span>}{r.refs.map((x, j) => <RefRow key={j} r={x} pr={m.overlay?.pr} />)}</div>)}
+      {refs.filter((r) => r.refs.length).map((r, i) => <div key={i} className="small rc-refs">{r.label && <span className="muted">{r.label}</span>}{r.refs.map((x, j) => <RefRow key={j} r={x} ov={m.overlay} />)}</div>)}
       {extra}
       {related.length > 0 && (
         <p className="small rc-related" data-testid={`related-${id}`}>相關檢查：{related.map((r) => (

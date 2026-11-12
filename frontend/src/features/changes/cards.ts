@@ -2,10 +2,11 @@
  * Change cards (plan「變更與影響」): the concrete changes a reader starts from. Pure, built only from the overlay:
  *   behavior — one per behavior_changes item, in the artifact's order (that order is not an importance ranking);
  *   flow     — a changed flow no behavior change covers (e.g. without Claude): its step counts are static facts;
+ *              the backend's static before/after (source "static", step names strung into sentences) is shown this way too;
  *   tech     — changed files of a capability no flow card covers, or of no capability at all (CI, config).
  */
 import { flowSteps, namesOf, type Model } from "@/entities/artifact/model"
-import type { ArchCheck, BehaviorChange, ChangedFile, FlowChange, StepStatus } from "@/entities/artifact/types"
+import type { ArchCheck, BehaviorChange, ChangedFile, FlowChange, OverlayStep, StepStatus } from "@/entities/artifact/types"
 import { interfaceChanges } from "@/features/architecture/interfaces"
 
 export type ChangeCard =
@@ -25,8 +26,9 @@ export function changeCards(m: Model): ChangeCard[] {
   const ov = m.overlay
   if (!ov) return []
   const flowExists = (id: string) => m.flows.some((f) => f.id === id)
-  const out: ChangeCard[] = ov.behavior_changes.map((bc) => ({ kind: "behavior", id: bc.id, bc, flowIds: bc.flow_ids.filter(flowExists), capIds: bc.capability_ids }))
-  const inBehavior = new Set(ov.behavior_changes.flatMap((b) => b.flow_ids))
+  const texts = ov.behavior_changes.filter((bc) => !isStaticBehavior(bc))
+  const out: ChangeCard[] = texts.map((bc) => ({ kind: "behavior", id: bc.id, bc, flowIds: bc.flow_ids.filter(flowExists), capIds: bc.capability_ids }))
+  const inBehavior = new Set(texts.flatMap((b) => b.flow_ids))
   for (const fc of ov.flow_changes) {
     if (inBehavior.has(fc.flow_id) || !flowExists(fc.flow_id)) continue
     const steps = flowSteps(m, fc.flow_id).steps
@@ -48,6 +50,23 @@ export function changeCards(m: Model): ChangeCard[] {
   return out
 }
 
+/** The backend's fallback without Claude: step names strung into a before/after — not a business description. */
+export const isStaticBehavior = (bc: BehaviorChange) => bc.after.source === "static"
+
+export interface StaticGroup { capId: string; steps: OverlayStep[]; files: ChangedFile[] }
+/** A changed flow without business texts, by capability (step order): its changed steps and that capability's changed files. */
+export function staticGroups(m: Model, flowId: string): StaticGroup[] {
+  const files = m.overlay?.changes.files ?? []
+  const out = new Map<string, StaticGroup>()
+  for (const s of flowSteps(m, flowId).steps) {
+    if (s.step_change_status === "unchanged") continue
+    const g = out.get(s.capability_id) ?? { capId: s.capability_id, steps: [], files: files.filter((f) => f.capability_id === s.capability_id) }
+    g.steps.push(s)
+    out.set(s.capability_id, g)
+  }
+  return [...out.values()]
+}
+
 /** Why a behavior change has no 修改前: a structural fact when all its flows are new, otherwise undetermined. */
 export function missingBefore(m: Model, bc: BehaviorChange): "new_flow" | "undetermined" | null {
   if (bc.before) return null
@@ -56,7 +75,6 @@ export function missingBefore(m: Model, bc: BehaviorChange): "new_flow" | "undet
 }
 
 export const STEP_COUNT_LABEL: Record<Exclude<StepStatus, "unchanged">, string> = { added: "新增", removed: "移除", changed: "改變" }
-export const FILE_STATUS: Record<ChangedFile["status"], string> = { added: "新增", modified: "修改", removed: "移除", renamed: "改名" }
 
 /** 「結帳」→「結帳流程」, but 「結帳流程」 stays as is. */
 export const flowTitle = (name: string) => (name.endsWith("流程") ? name : `${name}流程`)

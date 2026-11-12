@@ -1,13 +1,14 @@
 import { flowList, flowSteps, nameOfId, type Model } from "@/entities/artifact/model"
 import { useExplorer, NAV } from "@/app/store"
-import { Chip, TextBlock } from "@/shared/ui/ui"
+import { Chip, FileRow, TextBlock } from "@/shared/ui/ui"
 import { ViewFlowLabel } from "./FlowName"
 import { FlowFocus } from "@/features/flows/FlowFocus"
 import { RelationView } from "@/features/relations/RelationView"
 import { IMPACT_SENTENCE } from "@/features/relations/wording"
 import { CHANGE_LABEL, COMPAT } from "@/features/architecture/interfaces"
-import { scopeLine } from "@/features/analysis-state/state"
-import { cardDomId, changeCards, FILE_STATUS, missingBefore, STEP_COUNT_LABEL, stepCounts, type ChangeCard } from "./cards"
+import { AI_MISSING, aiMissing, scopeLine } from "@/features/analysis-state/state"
+import { cardDomId, changeCards, missingBefore, STEP_COUNT_LABEL, stepCounts, type ChangeCard } from "./cards"
+import { StaticGroups } from "./StaticChange"
 
 const names = (m: Model, ids: string[]) => ids.map((id) => nameOfId(m, id).primary).join("、")
 
@@ -43,15 +44,18 @@ function CardBody({ c, m }: { c: ChangeCard; m: Model }) {
   }
   if (c.kind === "flow") {
     return (
-      <p className="textblock">流程「{nameOfId(m, c.flowId).primary}」{c.fc.change_status === "added" ? "是這個 PR 新增的" : c.fc.change_status === "removed" ? "被這個 PR 移除" : "的步驟有變動"}：
-        {(["added", "removed", "changed"] as const).filter((k) => c.counts[k]).map((k) => <span key={k} className={"step-count sc-" + k}>{STEP_COUNT_LABEL[k]} {c.counts[k]} 步</span>)}
-        <span className="source-note">來源：靜態分析；沒有業務說明，不描述業務差異</span></p>
+      <>
+        <p className="textblock">流程「{nameOfId(m, c.flowId).primary}」{c.fc.change_status === "added" ? "是這個 PR 新增的" : c.fc.change_status === "removed" ? "被這個 PR 移除" : "的步驟有變動"}：
+          {(["added", "removed", "changed"] as const).filter((k) => c.counts[k]).map((k) => <span key={k} className={"step-count sc-" + k}>{STEP_COUNT_LABEL[k]} {c.counts[k]} 步</span>)}
+          <span className="source-note">來源：靜態分析；沒有業務語言的說明（AI 說明{AI_MISSING[aiMissing(m)]}），不描述業務差異</span></p>
+        <StaticGroups m={m} flowId={c.flowId} />
+      </>
     )
   }
   return (
     <>
       <p className="textblock">{c.capId ? <>功能「{nameOfId(m, c.capId).primary}」的檔案有修改，沒有對應的業務流程。</> : "這些檔案不屬於任何功能（例如 CI、設定），沒有對應的業務流程。"} <span className="source-note">來源：靜態分析</span></p>
-      <ul className="plain files">{c.files.map((f) => <li key={f.id}><span className={"fstat fs-" + f.status}>{FILE_STATUS[f.status]}</span> <code className="tech">{f.path}</code> <span className="muted small">+{f.additions} −{f.deletions}</span></li>)}</ul>
+      <ul className="plain files">{c.files.map((f) => <FileRow key={f.id} f={f} ov={m.overlay} />)}</ul>
       {c.interfaces.length > 0 && <ul className="plain">{c.interfaces.map((a) => <li key={a.id} className="small">介面{CHANGE_LABEL[a.interface_change!.change]}：{a.title} <Chip tone={COMPAT[a.interface_change!.compatibility].tone}>{COMPAT[a.interface_change!.compatibility].label}</Chip></li>)}</ul>}
     </>
   )

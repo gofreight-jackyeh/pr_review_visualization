@@ -202,7 +202,7 @@ button.big { font-size: 1.05rem; padding: 8px 20px; margin-top: 12px; }
 .diff-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; } .diff-pick p { width: 100%; margin: 0; }
 .diff-pick button.on { border-color: var(--accent); background: #eef4ff; font-weight: 600; } .diff-pick button.on::before { content: "● "; }
 .counts { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin: 12px 0; padding: 8px 12px; background: #f6f8fb; border-radius: 8px; }
-.known-changes li::before { content: "・"; }
+.known-changes > li::before { content: "・"; }
 .reading-path .gstep-toggle { border: 0; background: none; padding: 4px 0; text-align: left; font-weight: 600; }
 .reading-path .gstep.on { border-left: 3px solid var(--accent); padding-left: 10px; background: #f4f8ff; } .gstep-body { padding-bottom: 6px; }
 .scope { margin-top: 16px; } .scope summary { cursor: pointer; color: var(--muted); }
@@ -264,3 +264,12 @@ button.disclosure { border: 0; background: none; padding: 2px 0; font: inherit; 
 /* summary first screen: compact action row, clamped long texts */
 .next-row { margin: 10px 0; } .next-row .counts { padding: 4px 12px; flex: 1 1 auto; }
 .clamp4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; } .clamped .link { padding: 0; }
+/* PR description fallback (Markdown) and the static change view without business texts */
+.purpose-md .source-note { margin: 0 0 2px; }
+.markdown { line-height: 1.55; overflow-wrap: anywhere; } .markdown > :first-child { margin-top: 0; } .markdown > :last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { font-size: 1rem; margin: .5em 0 .2em; } .markdown p, .markdown ul, .markdown ol { margin: .3em 0; } .markdown ul, .markdown ol { padding-left: 1.4em; }
+.markdown pre { background: #f4f6f9; border: 1px solid var(--line); border-radius: 6px; padding: 6px; overflow: auto; font-size: .8rem; } .markdown blockquote { margin: .3em 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
+.markdown table { border-collapse: collapse; font-size: .85rem; } .markdown th, .markdown td { border: 1px solid var(--line); padding: 2px 6px; } .markdown a { color: var(--accent); }
+.md-clamp { max-height: 7.8em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.static-groups { display: grid; gap: 6px; margin: 6px 0; } .sg { border-left: 3px solid var(--line); padding-left: 10px; } .sg-steps > li { margin: 3px 0; } .sg .step-count { margin: 0 6px 0 0; font-size: .85rem; } .sg .refrow { margin: 1px 0 0 1.2em; font-size: .85rem; }
+.filerow .mini { margin-left: 6px; }

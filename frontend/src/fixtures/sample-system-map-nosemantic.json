@@ -1,6 +1,6 @@
 {
   "kind": "system_map",
-  "schema_version": "2.2.0",
+  "schema_version": "2.3.0",
   "analyzer_version": "2.2.0-fixture",
   "system_map_id": "sm_sample_nosemantic",
   "generated_at": "2026-11-11T09:00:00Z",

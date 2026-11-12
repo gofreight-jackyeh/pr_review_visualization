@@ -1,12 +1,14 @@
 import { nameOfId, namesOf, type Model } from "@/entities/artifact/model"
 import { useExplorer } from "@/app/store"
-import { SourceNote, TextBlock } from "@/shared/ui/ui"
+import { FileRow, SourceNote, TextBlock } from "@/shared/ui/ui"
+import { Markdown } from "@/shared/ui/Markdown"
 import type { Text } from "@/entities/artifact/types"
 import { firstSentence, LONG_TEXT } from "./sentence"
 import { ReadingPath } from "@/features/guide/Guide"
-import { analysisStates, scopeLine } from "@/features/analysis-state/state"
+import { AI_MISSING, aiMissing, analysisStates, scopeLine } from "@/features/analysis-state/state"
 import { interfaceChanges } from "@/features/architecture/interfaces"
 import { cardDomId, changeCards, missingBefore, STEP_COUNT_LABEL, type ChangeCard } from "@/features/changes/cards"
+import { StaticGroups } from "@/features/changes/StaticChange"
 
 const names = (m: Model, ids: string[]) => ids.map((id) => nameOfId(m, id).primary).join("、")
 
@@ -27,6 +29,24 @@ function ClampedText({ id, t }: { id: string; t: Text }) {
     <div className="clamped">
       <p className={"textblock" + (open ? "" : " clamp4")} data-testid="clamped-text">{t.text} <SourceNote source={t.source} /></p>
       <button className="link small" aria-expanded={open} onClick={() => ex.toggle(`clamp:${id}`, !open)}>{open ? "收合" : "顯示全文"}</button>
+    </div>
+  )
+}
+
+/**
+ * 這次修改: Claude's purpose as text; the PR-description fallback as safe Markdown, labelled with why there is no AI
+ * summary, clamped with an in-place 「展開全文」.
+ */
+function Purpose({ m, t }: { m: Model; t: Text }) {
+  const ex = useExplorer()
+  if (t.source !== "pr_description") return <TextBlock t={t} />
+  const long = t.text.length > LONG_TEXT || t.text.split("\n").length > 4
+  const open = ex.expanded.has("clamp:purpose")
+  return (
+    <div className="purpose-md" data-testid="purpose-md">
+      <p className="source-note" data-testid="purpose-label" title="直接取自 PR 標題與描述，未經 AI 說明">PR 描述（AI 摘要{AI_MISSING[aiMissing(m)]}）</p>
+      <Markdown text={t.text} className={long && !open ? "md-clamp" : ""} />
+      {long && <button className="link small" aria-expanded={open} data-testid="purpose-more" onClick={() => ex.toggle("clamp:purpose", !open)}>{open ? "收合" : "展開全文"}</button>}
     </div>
   )
 }
@@ -78,7 +98,9 @@ function MainDifference({ m, cards }: { m: Model; cards: ChangeCard[] }) {
       <div className="diff-card static" data-testid="main-diff-static">
         <p>{lead}</p>
         <ul className="plain known-changes">{cards.map((c) => <li key={c.id}>{cardLabel(m, c)}{c.kind === "flow" && <span className="muted small">　{(["added", "removed", "changed"] as const).filter((k) => c.counts[k]).map((k) => `${STEP_COUNT_LABEL[k]} ${c.counts[k]} 步`).join("、")}</span>}
-          {c.kind === "tech" && <span className="muted small">　{c.files.length} 個檔案</span>}</li>)}</ul>
+          {c.kind === "tech" && <span className="muted small">　{c.files.length} 個檔案</span>}
+          {c.kind === "flow" && <StaticGroups m={m} flowId={c.flowId} />}
+          {c.kind === "tech" && <ul className="plain files">{c.files.map((f) => <FileRow key={f.id} f={f} ov={m.overlay} />)}</ul>}</li>)}</ul>
         <p className="muted small">{scopeLine(m)}</p>
       </div>
     )
@@ -131,7 +153,7 @@ export function Summary() {
       <Background m={m} bizCaps={bizCaps} />
       <section aria-labelledby="sum-purpose">
         <h3 id="sum-purpose">這次修改</h3>
-        <TextBlock t={ov.purpose} />
+        <Purpose m={m} t={ov.purpose} />
       </section>
       <div className="next-row" data-testid="next-row">
         <button className="primary big" data-testid="go-changes" onClick={() => ex.go({ nav: "changes", card: target?.id ?? null }, target ? cardDomId(target.id) : undefined)}>查看這次修改</button>
