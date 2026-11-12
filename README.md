@@ -28,11 +28,11 @@ Generated explanations are in Traditional Chinese by default, matching the UI; `
 
 ## Data & privacy
 
-- Everything is stored locally under `$PR_EXPLORER_HOME` (default `~/.pr-explorer/`): a bare git clone of each analyzed repository under `repos/` (this holds the **raw, unredacted source**), an SQLite index, and the result documents. Per-commit worktrees under `worktrees/` are removed when the analysis finishes.
+- Everything is stored locally under `$PR_EXPLORER_HOME` (default `~/.pr-explorer/`): a bare git clone of each analyzed repository under `repos/` (this holds the **raw, unredacted source**), an SQLite index, and the result documents. Per-commit worktrees under `worktrees/` are kept for up to 10 minutes after an analysis (at most two per repository) so the next analysis can reuse them, then removed; leftovers are removed at the next server start.
 - Result documents are scrubbed for common secret formats (tokens, keys, passwords) before they are written. This is pattern-based and best-effort, not a guarantee.
 - `logs/semantic-calls.jsonl` records one line per Claude call: time, kind, tier, attempt, prompt size, duration, exit code, reply size. It never contains prompt text.
 - With Claude enabled, the PR title and description, diff and code excerpts, repo docs and any context text you paste are sent to Claude through the local `claude` CLI (and so to the model service your CLI is signed in to). The initial prompt is scrubbed for secrets. Claude may also read any file inside the analyzed worktree during the call; those reads are **not** scrubbed.
-- A follow-up question (「問 AI」) sends the question, a digest of the stored analysis, the PR diff and up to 6 earlier questions and answers of that PR to Claude the same way; the PR's head is checked out again for that one call and removed afterwards. Questions and answers are stored (scrubbed) in the SQLite index.
+- A follow-up question (「問 AI」) sends the question, a digest of the stored analysis, the PR diff and up to 6 earlier questions and answers of that PR to Claude the same way; the PR's head is checked out again for that one call (then kept idle like an analysis' worktrees). Questions and answers are stored (scrubbed) in the SQLite index.
 - To keep everything on this machine, turn Claude off: choose "關閉（只做靜態分析）" under "Claude 業務說明" in the UI, or pass `--semantic off` to `pr-explorer analyze`.
 
 ## Network exposure

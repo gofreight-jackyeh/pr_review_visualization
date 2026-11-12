@@ -126,7 +126,14 @@ export function analyze(input: any) {
   for (const rel of rels) {
     const sf = program.getSourceFile(path.join(root, rel));
     if (!sf) { diagnostics.push(`not parsed: ${rel}`); continue; }
-    files.push(analyzeFile(sf, rel));
+    try {
+      files.push(analyzeFile(sf, rel));
+    } catch (e) {
+      // One file the checker cannot handle (seen: a minified vendor bundle overflowing the stack) must not sink the
+      // whole program; like tsserver after a failed request, the same checker goes on (a fresh one would need a
+      // second full type-check's memory: an 8k-file program already uses ~3.1 GB of heap).
+      diagnostics.push(`not analyzed (${(e as Error).message}): ${rel}`);
+    }
   }
   return { version: "1", files, diagnostics };
 

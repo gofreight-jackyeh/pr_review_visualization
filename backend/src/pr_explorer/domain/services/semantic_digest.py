@@ -27,16 +27,17 @@ def detect_language(*texts: str) -> str:
 
 
 def capability_batches(smap: SystemMap, size: int = 15, only: list[str] | None = None, sg: SideGraph | None = None,
-                       char_budget: int | None = None) -> list[list[str]]:
+                       char_budget: int | None = None, partial: dict[str, list[str]] | None = None) -> list[list[str]]:
     """`only`: the capabilities that still need texts (incremental reuse); [[]] = a summary-only call.
     With `sg` + `char_budget`, a batch also closes once its capabilities' own digest parts (capability, entities, entry
     points, flows and steps — what Claude has to write about) reach `char_budget` characters: a batch's reply time grows
-    with that, not with the number of capabilities (a single capability with very many entry points can time out alone)."""
+    with that, not with the number of capabilities (a single capability with very many entry points can time out alone).
+    `partial`: capabilities of which only some elements are re-asked (see `system_map_digest`)."""
     keep = set(only) if only is not None else None
     caps = [c.id for c in smap.capabilities if keep is None or c.id in keep]
     if sg is None or char_budget is None:
         return [caps[i: i + size] for i in range(0, len(caps), size)] or [[]]
-    cost = capability_costs(smap, sg, caps)
+    cost = capability_costs(smap, sg, caps, partial)
     out: list[list[str]] = []
     cur: list[str] = []
     used = 0
@@ -49,19 +50,25 @@ def capability_batches(smap: SystemMap, size: int = 15, only: list[str] | None =
     return out + ([cur] if cur else []) or [[]]
 
 
-def capability_costs(smap: SystemMap, sg: SideGraph, caps: list[str]) -> dict[str, int]:
+def capability_costs(smap: SystemMap, sg: SideGraph, caps: list[str], partial: dict[str, list[str]] | None = None) -> dict[str, int]:
     """Characters of each capability's own part of a system-map digest."""
     out = {}
     for cid in caps:
-        d = system_map_digest(smap, sg, [cid], [], first=False)
+        d = system_map_digest(smap, sg, [cid], [], first=False, partial=partial)
         out[cid] = sum(len(json.dumps(d[k], ensure_ascii=False, separators=(",", ":"))) for k in ("capabilities", "entities", "entry_points", "flows"))
     return out
 
 
 def system_map_digest(smap: SystemMap, sg: SideGraph, batch: list[str], docs: list[tuple[str, DocExcerpt]],
-                      first: bool, doc_budget: int = 12_000, write_summary: bool | None = None) -> dict[str, Any]:
-    """docs: (evidence id, excerpt). The first batch also asks for the system summary (unless it was reused)."""
+                      first: bool, doc_budget: int = 12_000, write_summary: bool | None = None,
+                      partial: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """docs: (evidence id, excerpt). The first batch also asks for the system summary (unless it was reused).
+    `partial`: capability -> the only elements (entity / entry point / flow ids) of it to show: their reused texts
+    cited code that changed, the capability's other texts are kept. A flow brings its entry point along as context."""
     in_batch = set(batch)
+    part = {c: set(v) for c, v in (partial or {}).items() if c in in_batch}
+    ep_of_flow = {f.id: f.entry_point_id for f in smap.flows}
+    part_eps = {c: v | {ep_of_flow[x] for x in v if x in ep_of_flow} for c, v in part.items()}
     modules: dict[str, list[str]] = {}
     for c in smap.components:
         if c.kind == "module" and c.capability_id in in_batch and len(modules.setdefault(c.capability_id, [])) < MODULES_PER_CAP:
@@ -69,7 +76,7 @@ def system_map_digest(smap: SystemMap, sg: SideGraph, batch: list[str], docs: li
     flow_eps = {f.entry_point_id for f in smap.flows}
     eps_of: dict[str, list] = {}
     for ep in smap.entry_points:
-        if ep.capability_id in in_batch:
+        if ep.capability_id in in_batch and (ep.capability_id not in part or ep.id in part_eps[ep.capability_id]):
             eps_of.setdefault(ep.capability_id, []).append(ep)
     shown_eps: set[str] = set()
     for cid, lst in eps_of.items():
@@ -77,7 +84,7 @@ def system_map_digest(smap: SystemMap, sg: SideGraph, batch: list[str], docs: li
         shown_eps |= {ep.id for ep in lst[:ENTRY_POINTS_PER_CAP]}
     ents_of: dict[str, list] = {}
     for e in smap.entities:
-        if e.capability_id in in_batch:
+        if e.capability_id in in_batch and (e.capability_id not in part or e.id in part[e.capability_id]):
             ents_of.setdefault(e.capability_id, []).append(e)
     shown_ents = {e.id for lst in ents_of.values() for e in lst[:ENTITIES_PER_CAP]}
     caps = [{
@@ -98,8 +105,9 @@ def system_map_digest(smap: SystemMap, sg: SideGraph, batch: list[str], docs: li
            for ep in smap.entry_points if ep.id in shown_eps]
     ep_ids = {ep["id"] for ep in eps}
     flows = []
+    cap_of_ep = {ep["id"]: ep["capability_id"] for ep in eps}
     for f in smap.flows:
-        if f.entry_point_id not in ep_ids:
+        if f.entry_point_id not in ep_ids or (cap_of_ep[f.entry_point_id] in part and f.id not in part[cap_of_ep[f.entry_point_id]]):
             continue
         flows.append({
             "id": f.id, "technical_name": f.technical_name, "entry_point_id": f.entry_point_id,
@@ -125,6 +133,42 @@ def system_map_digest(smap: SystemMap, sg: SideGraph, batch: list[str], docs: li
                                 **({"description": c.description.text[:200]} if c.description and not batch else {})}
                                for c in smap.capabilities if c.id not in in_batch and c.category != "engineering"][:80],
     }
+
+
+def digest_targets(smap: SystemMap, batch: list[str], partial: dict[str, list[str]] | None = None) -> set[str]:
+    """IDs a system-map call for `batch` asks Claude to write about: every element of a capability explained as a
+    whole (itself, its entities, entry points, flows by entry point and their steps), only the listed elements (a flow
+    with its steps) of a `partial` capability."""
+    in_batch = set(batch)
+    part = {c: set(v) for c, v in (partial or {}).items() if c in in_batch}
+    out = {c for c in in_batch if c not in part} | {x for v in part.values() for x in v}
+    ep_cap = {}
+    for el in [*smap.entities, *smap.entry_points]:
+        if el.capability_id in in_batch and el.capability_id not in part:
+            out.add(el.id)
+    for ep in smap.entry_points:
+        ep_cap[ep.id] = ep.capability_id
+    for f in smap.flows:
+        cap = ep_cap.get(f.entry_point_id)
+        if cap in in_batch and (cap not in part or f.id in part[cap]):
+            out.add(f.id)
+            out.update(s.id for s in f.timeline.steps)
+    return out
+
+
+def restrict_reply(reply: object, allowed: set[str], known: set[str]) -> object:
+    """Keep only what a system-map call was asked about: an item naming another known map element (one this call did
+    not ask for — its text is kept from an earlier map or written by its own call) is left out. Unknown IDs stay, so
+    the gate still counts them as dropped claims. The system summary is untouched."""
+    if not isinstance(reply, dict):
+        return reply
+    out = dict(reply)
+    for key in ("capabilities", "entities", "entry_points", "flows", "steps"):
+        items = reply.get(key)
+        if isinstance(items, list):
+            out[key] = [it for it in items if not (isinstance(it, dict) and isinstance(it.get("id"), str)
+                                                   and it["id"] in known and it["id"] not in allowed)]
+    return out
 
 
 def phase_batches(smap: SystemMap, flow_ids: list[str], size: int = 10, char_budget: int = 24_000) -> list[list[str]]:

@@ -67,3 +67,37 @@ def test_quoted_values_with_spaces_backticks_and_html_are_redacted():
     assert scrub("TOKEN=`x`") == "TOKEN=`[REDACTED]`"
     assert scrub("<input password=hunter22>") == "<input password=[REDACTED]>"
     assert scrub("""export DB_PASSWORD="p@ss'word" """) == """export DB_PASSWORD="[REDACTED]" """
+
+
+def test_trigger_prefilter_never_skips_a_string_a_pattern_would_change():
+    """`scrub` skips strings without a trigger literal; that is only sound if every pattern needs one. Every pattern
+    has a sample here (add one with each new pattern); Unicode case variants (ſ ~ s, K ~ k, ı ~ i) match `(?i)` patterns
+    and must reach them too."""
+    from pr_explorer.infrastructure.security.secret_scrubber import _PATTERNS, _TRIGGER, _apply_patterns
+
+    samples = [
+        PEM, "-----BEGIN EC " + "PRIVATE KEY-----\nabc", GH_TOKEN, "github" + "_pat_" + ALNUM[:22],
+        "AS" + "IA" + "IOSFODNN7EXAMPLE", "xox" + "p-1234567890-abc", "sk-" + "ant-" + ALNUM[:12],
+        "sk-" + "svcacct-" + ALNUM[:22], "sk-" + ALNUM[:24], "AI" + "za" + ALNUM[:35], "rk" + "_live_" + ALNUM[:12],
+        "gl" + "pat-" + ALNUM[:20], "npm" + "_" + ALNUM[:36], "hf" + "_" + ALNUM[:34], "Bearer " + ALNUM[:20],
+        "ey" + "J" + ALNUM[:10] + ".ey" + "J" + ALNUM[:10] + "." + ALNUM[:10], "https://u:pa55@host/x",
+        'API_KEY = "a b c"', "ACCESS-KEY=abcdef123", 'credential: "abc def"', "  private_key: abc/def+123",
+        f"AWS_SECRET_ACCESS_KEY={AWS_SECRET}", "Authorization: bearer " + ALNUM[:20], "auth_token='xyz123'",
+    ]
+    variants = {"s": "ſ", "k": "K", "i": "ı", "S": "ſ", "K": "K", "I": "ı"}  # ſ long s, K Kelvin sign, ı dotless i
+    samples += [s.translate(str.maketrans({a: b})) for s in samples for a, b in variants.items() if a in s]
+    samples += ["paſſword=abcdef12", "ToKEN=abcdef12", "aPı_key: 'abcdef'", "BEARER " + ALNUM[:20]]
+    hit = [False] * len(_PATTERNS)
+    for s in samples:
+        for i, (pat, _) in enumerate(_PATTERNS):
+            if pat.search(s):
+                hit[i] = True
+                assert _TRIGGER.search(s), (i, s)
+        assert scrub(s) == _apply_patterns(s), s
+    assert all(hit), [i for i, h in enumerate(hit) if not h]  # a pattern without a sample: add one above
+
+
+def test_scrub_tree_memo_returns_the_same_result_for_repeated_strings():
+    doc = {"a": [GH_TOKEN, GH_TOKEN, "x"], "b": {"c": GH_TOKEN, "d": "x"}, "head_sha": GH_TOKEN}
+    out = scrub_tree(doc, frozenset({"head_sha"}))
+    assert out == {"a": [scrub(GH_TOKEN)] * 2 + ["x"], "b": {"c": scrub(GH_TOKEN), "d": "x"}, "head_sha": GH_TOKEN}

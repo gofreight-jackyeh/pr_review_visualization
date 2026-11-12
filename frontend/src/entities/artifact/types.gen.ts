@@ -56,6 +56,7 @@ export type Capability = Named & {
   entity_ids: Ids
   entry_point_ids: Ids
   component_count?: number
+  text_basis?: TextBasis
 }
 export type Ids = Id[]
 export type Entity = Named & {
@@ -246,7 +247,7 @@ export type ArchCheck = {
 
 export interface SystemMap {
   kind: "system_map"
-  schema_version: "2.4.0"
+  schema_version: "2.5.0"
   analyzer_version: Version
   system_map_id: Id
   generated_at: string
@@ -313,6 +314,16 @@ export interface Named {
    * @minItems 1
    */
   evidence_refs: [Id, ...Id[]]
+}
+/**
+ * Static bookkeeping for reusing Claude texts on a later commit (2.5.0; absent = none recorded). surface: fingerprint of the capability's business-facing surface at this commit (entry points, entities and fields, interfaces, built flows and their steps, relations, name/path); a later map re-asks Claude only when it differs. written_at / written_commit: when and at which commit Claude wrote the capability's texts; base_changes: later base commits that reused them; changed_lines: lines of its code files changed since.
+ */
+export interface TextBasis {
+  surface: string
+  written_at?: string
+  written_commit?: Sha
+  base_changes: number
+  changed_lines: number
 }
 /**
  * Evidence location shown as path:line (spec v2 §4: no in-app code viewer).
@@ -420,7 +431,7 @@ export interface SemanticStatus {
 }
 export interface PrOverlay {
   kind: "pr_overlay"
-  schema_version: "2.4.0"
+  schema_version: "2.5.0"
   analyzer_version: Version
   overlay_id: Id
   system_map_id: Id

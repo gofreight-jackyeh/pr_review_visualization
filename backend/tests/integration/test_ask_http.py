@@ -85,7 +85,7 @@ def test_question_is_fenced_answered_with_resolved_cites_and_worktree_removed(as
     assert {"purpose", "behavior_changes", "findings", "architecture_checks", "flows_touched", "changed_files"} <= data.keys()
 
     assert fake.existed[-1] is True  # Claude could Read the head checkout during the call ...
-    assert not fake.worktrees[-1].exists()  # ... and it is gone afterwards
+    assert fake.worktrees[-1].resolve() in c.prune_worktrees()  # ... and nothing holds it afterwards (idle, removable)
     assert not any((c.home / "worktrees").glob("*/*"))
 
     a = q["answer"]

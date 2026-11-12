@@ -37,7 +37,7 @@ pr_review_visualization/
 │   │   │   │                       # KnowledgeSource, ArtifactStore, AnalysisRepository
 │   │   │   ├── pipeline/           # spec §5 六層，一層一個 stage
 │   │   │   └── use_cases/          # analyze_pr, get_artifact, check_pr_freshness,
-│   │   │                           # ask_question（追問：暫時重建 worktree、一次 Claude 呼叫、用完即刪）
+│   │   │                           # ask_question（追問：暫時重建 worktree、一次 Claude 呼叫、用完釋放；閒置 worktree 最多保留 10 分鐘供下次重用）
 │   │   ├── infrastructure/
 │   │   │   ├── source/             # git_worktree, gh_cli
 │   │   │   ├── analyzers/

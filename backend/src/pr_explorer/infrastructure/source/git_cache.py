@@ -2,6 +2,10 @@
 
 The user's own checkout is only ever *read* (rev-parse / clone source); all checkouts happen
 in our cache. Repository hooks are disabled for every git invocation.
+
+A released worktree is kept idle for a few minutes (at most MAX_IDLE per repository): the next analysis resets it to
+its commit (the same one, or another after moving it), rewriting only the files that differ — a full checkout plus
+removal of a large repository (34k files) costs ~5.5 s per worktree, a reset ~1 s.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ import hashlib
 import os
 import re
 import threading
+import time
 from pathlib import Path
 
 from ...application.ports import SourceError
@@ -17,6 +22,8 @@ from ..process.runner import CommandRunner
 
 SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 SAFE_KEY = re.compile(r"[^A-Za-z0-9._-]+")
+IDLE_TTL_S = 600.0  # an unheld worktree is removed after this long (or at the next server start)
+MAX_IDLE = 2  # unheld worktrees kept per repository: one PR's base + head
 
 
 def git_env() -> dict[str, str]:
@@ -26,15 +33,17 @@ def git_env() -> dict[str, str]:
 
 
 class GitCache:
-    def __init__(self, home: Path, runner: CommandRunner, timeout: float = 600):
+    def __init__(self, home: Path, runner: CommandRunner, timeout: float = 600, idle_ttl: float = IDLE_TTL_S):
         self.home = home
         self.runner = runner
         self.timeout = timeout
+        self.idle_ttl = idle_ttl  # 0: remove a worktree as soon as its last holder releases it
         self._lock = threading.RLock()  # serializes clone/fetch/worktree mutations
-        # Worktrees are shared by concurrent analyses (two PRs on one base); a worktree is removed when its last
-        # holder releases it. Nothing reads a worktree after its analysis (no source endpoint; freshness and
-        # fingerprints use the bare cache), so they are regenerable scratch space.
+        # Worktrees are shared by concurrent analyses (two PRs on one base); when its last holder releases one it
+        # becomes idle (reusable, see the module doc). Nothing reads a worktree after its analysis (no source
+        # endpoint; freshness and fingerprints use the bare cache), so they are regenerable scratch space.
         self._holds: dict[Path, int] = {}
+        self._idle: dict[Path, tuple[str, float]] = {}  # path -> (repo key, monotonic time it became idle)
 
     @staticmethod
     def key_for(prefix: str, ident: str, name: str) -> str:
@@ -111,15 +120,41 @@ class GitCache:
             raise SourceError(f"refusing worktree for non-SHA {sha!r}")
         path = self.home / "worktrees" / key / sha
         with self._lock:
-            if not (path / ".git").exists():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                self.git(["worktree", "prune"], key=key, check=False)
-                self.git(["worktree", "add", "--detach", "--force", "--quiet", str(path), sha], key=key)
+            idle = self._idle.pop(path, None) is not None  # held worktrees are in use: never reset under a reader
+            if not ((path / ".git").exists() and (not idle or self._reset(key, path, sha))):
+                spare = next((p for p, (k, _) in self._idle.items() if k == key), None)
+                if spare is None or not self._recycle(key, spare, path, sha):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    self.git(["worktree", "prune"], key=key, check=False)
+                    self.git(["worktree", "add", "--detach", "--force", "--quiet", str(path), sha], key=key)
             self._holds[path] = self._holds.get(path, 0) + 1
         return path
 
+    def _reset(self, key: str, path: Path, sha: str) -> bool:
+        """Make an idle worktree hold exactly the files of a fresh checkout of `sha`: forced checkout (only files that
+        differ are rewritten), then every untracked / ignored file removed. Hooks stay disabled. False: removed."""
+        try:
+            self.git(["checkout", "--detach", "--force", "--quiet", sha], cwd=str(path))
+            self.git(["clean", "-ffdxq"], cwd=str(path))
+            return True
+        except SourceError:
+            self._remove(key, path)
+            return False
+
+    def _recycle(self, key: str, spare: Path, path: Path, sha: str) -> bool:
+        """Move an idle worktree of another commit to `path` and reset it to `sha`. False: removed instead."""
+        del self._idle[spare]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.git(["worktree", "move", str(spare), str(path)], key=key)
+        except SourceError:
+            self._remove(key, spare)
+            return False
+        return self._reset(key, path, sha)
+
     def release_worktree(self, key: str, sha: str) -> None:
-        """Drop one hold; the last holder removes the checkout (the bare cache keeps every commit)."""
+        """Drop one hold; after the last one the checkout stays idle for reuse (removed after `idle_ttl`, or at once
+        beyond MAX_IDLE per repository; the bare cache keeps every commit)."""
         path = self.home / "worktrees" / key / sha
         with self._lock:
             left = self._holds.get(path, 0) - 1
@@ -127,7 +162,26 @@ class GitCache:
                 self._holds[path] = left
                 return
             self._holds.pop(path, None)
-            self._remove(key, path)
+            if self.idle_ttl <= 0 or not (path / ".git").exists():
+                self._remove(key, path)
+                return
+            self._idle[path] = (key, time.monotonic())
+            for old in [p for p, (k, _) in self._idle.items() if k == key][:-MAX_IDLE]:  # oldest first
+                del self._idle[old]
+                self._remove(key, old)
+        timer = threading.Timer(self.idle_ttl + 1, self.remove_expired)
+        timer.daemon = True
+        timer.start()
+
+    def remove_expired(self, now: float | None = None) -> list[Path]:
+        """Remove the worktrees idle for longer than `idle_ttl`."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            gone = [(p, k) for p, (k, since) in self._idle.items() if now - since >= self.idle_ttl]
+            for p, k in gone:
+                del self._idle[p]
+                self._remove(k, p)
+        return [p for p, _ in gone]
 
     def _remove(self, key: str, path: Path) -> None:
         self.git(["worktree", "remove", "--force", str(path)], key=key, check=False)

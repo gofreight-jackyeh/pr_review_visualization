@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,12 +34,17 @@ from ...domain.services.rings import detect_interfaces, diff_interfaces
 from ...domain.services.domains import MIN_BUSINESS_FOR_CLAUDE, apply_domains, business, domain_digest, gate_domains
 from ...domain.services.graph_diff import diff_graphs
 from ...domain.services.impact_propagation import propagate_impact
-from ...domain.services.map_reuse import ReusePlan, capability_fingerprints, donor_language, reuse_texts, skeleton
+from ...domain.services.map_reuse import (
+    BaseChange, ReuseLimits, ReusePlan, capability_fingerprints, capability_lines, capability_surfaces, donor_language,
+    has_surfaces, reuse_texts, skeleton,
+)
 from ...domain.services.overlay_builder import MapIndex, OverlayBuilder, static_behavior_changes
 from ...domain.services.semantic_digest import (
-    capability_batches, detect_language, phase_batches, phase_digest, pr_digest, relevant_rules, system_map_digest,
+    capability_batches, detect_language, digest_targets, phase_batches, phase_digest, pr_digest, relevant_rules,
+    restrict_reply, system_map_digest,
 )
 from ...domain.services.semantic_gate import PrKnown, PrSemantic, apply_phases, apply_system_semantics, gate_pr
+from ...domain.model.document import TextBasis
 from ...domain.services.static_findings import find_static_issues
 from ...domain.services.system_map_builder import assemble_system_map, build_flows, referenced_evidence
 from ...domain.services.system_structure import Structure, build_structure
@@ -104,6 +109,15 @@ class PipelineConfig:
     semantic_parallel: int = 4  # concurrent Claude system-map calls
     # language of every generated text: "zh-Hant" | "en" | "auto" (zh-Hant when the repo docs / PR are Chinese, else en)
     output_language: str = "zh-Hant"
+    # The PR call starts as soon as the map texts it shows (names of the elements it lists, step labels of its flows,
+    # the system summary) are written, instead of after the whole map (other capabilities, domains, phases). Its prompt
+    # is the same; should the stored map end up different, the call is repeated with the final names.
+    pr_early_start: bool = True
+    # Staleness guard of incremental map reuse (domain/services/map_reuse.py, ReuseLimits): a capability's Claude texts
+    # are re-explained as a whole once more than this share of its code lines changed since they were written ...
+    reuse_max_changed_share: float = 0.4
+    reuse_max_base_changes: int = 40  # ... or they were carried across more base commits than this ...
+    reuse_max_age_days: float = 14.0  # ... or they are older than this many days
 
     def language(self, *texts: str) -> str:
         return detect_language(*texts) if self.output_language == "auto" else self.output_language
@@ -141,6 +155,7 @@ class Context:
     sides: dict[str, SideGraph] = field(default_factory=dict)
     deep_ok: dict[str, set[str]] = field(default_factory=dict)
     notes: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    deep_jobs: dict[tuple[int, str], Future] = field(default_factory=dict)  # (analyzer index, side) -> its SideGraph
     # PR
     files: list[ChangedFile] = field(default_factory=list)
     diff_evidence: dict[str, Evidence] = field(default_factory=dict)  # path -> evidence
@@ -176,6 +191,38 @@ class MapFlight:
 
     static: Future = field(default_factory=Future)
     final: Future = field(default_factory=Future)
+    # what lets a PR call start before `final`: one future per Claude capability / summary call (its SemanticDraft,
+    # set as each call returns) and the map those calls write into
+    calls: list[Future] = field(default_factory=list)
+    early: "EarlyNames | None" = None
+
+
+@dataclass
+class EarlyNames:
+    """The map as stored before Claude's texts (`pending`) and, per capability / summary call, the IDs it writes
+    (`targets`). A call's texts depend on its own reply only, so the texts a PR shows are final once the calls
+    writing them returned."""
+
+    pending: SystemMap
+    targets: list[set[str]]
+    known: set[str]  # every element / step ID of the map (replies are restricted to their call's targets)
+    summary_call: int | None  # the call writing the system summary (None: reused)
+
+
+def _light_copy(smap: SystemMap) -> SystemMap:
+    """A copy whose texts can be rewritten (named elements, flows and steps copied; everything else shared)."""
+    m = copy.copy(smap)
+    m.system = copy.copy(smap.system)
+    m.capabilities = [copy.copy(c) for c in smap.capabilities]
+    m.entities = [copy.copy(e) for e in smap.entities]
+    m.entry_points = [copy.copy(e) for e in smap.entry_points]
+    m.flows = []
+    for f in smap.flows:
+        f2 = copy.copy(f)
+        f2.timeline = copy.copy(f.timeline)
+        f2.timeline.steps = [copy.copy(s) for s in f.timeline.steps]
+        m.flows.append(f2)
+    return m
 
 
 class Pipeline:
@@ -187,26 +234,58 @@ class Pipeline:
         self._map_jobs = ThreadPoolExecutor(max_workers=2, thread_name_prefix="map-semantic")
 
     def run(self, ctx: Context, report: Callable[[str, str, str], None]) -> Path:
-        for name in STAGES:
-            report(name, "running", "")
-            try:
-                msg = getattr(self, f"stage_{name}")(ctx) or ""
-            except StageSkipped as s:
-                report(name, "skipped", str(s))
-                continue
-            except Exception as exc:
-                report(name, "failed", f"{type(exc).__name__}: {exc}"[:500])
-                raise
-            report(name, "done", msg)
+        try:
+            for name in STAGES:
+                report(name, "running", "")
+                try:
+                    msg = getattr(self, f"stage_{name}")(ctx) or ""
+                except StageSkipped as s:
+                    report(name, "skipped", str(s))
+                    continue
+                except Exception as exc:
+                    report(name, "failed", f"{type(exc).__name__}: {exc}"[:500])
+                    raise
+                report(name, "done", msg)
+        finally:
+            self._join_deep(ctx)  # the caller releases the worktrees next: no analyzer may still be reading them
         assert ctx.overlay_path is not None
         return ctx.overlay_path
 
     # ------------------------------------------------------------------ L1
     def stage_acquire(self, ctx: Context) -> str:
         ctx.workspace = self.d.source.materialize(ctx.pr)
+        self._start_deep(ctx)
         return f"worktrees at merge-base {ctx.pr.merge_base_sha[:10]} and head {ctx.pr.head_sha[:10]}"
 
     # ------------------------------------------------------------------ L2/L3 helpers
+    def _start_deep(self, ctx: Context) -> None:
+        """Start both sides' deep analysis right after checkout: one thread per analyzer, base then head. The TS
+        analyzer is a separate Node process, so its two runs overlap the Python parse instead of following it; the
+        Python analyzer still parses head after base (reusing its summaries). One side at a time per analyzer keeps a
+        single Node process per analysis (peak memory as before). `_deep` merges the results in analyzer order."""
+        ws = ctx.workspace
+        assert ws is not None
+        for i, an in enumerate(self.d.analyzers):
+            futs = [ctx.deep_jobs.setdefault((i, side), Future()) for side in ("base", "head")]
+
+            def chain(an=an, futs=futs) -> None:
+                for fut, (root, files, side) in zip(futs, ((ws.base_root, ws.base_files, "base"),
+                                                           (ws.head_root, ws.head_files, "head"))):
+                    if not fut.set_running_or_notify_cancel():
+                        continue
+                    try:
+                        fut.set_result(an.analyze(root, files, side))
+                    except BaseException as exc:
+                        fut.set_exception(exc)
+
+            threading.Thread(target=chain, name=f"deep-{an.name}", daemon=True).start()
+
+    @staticmethod
+    def _join_deep(ctx: Context) -> None:
+        for fut in ctx.deep_jobs.values():
+            fut.cancel()  # not started: never starts
+        wait(list(ctx.deep_jobs.values()))
+
     def _deep(self, ctx: Context, side: str) -> SideGraph:
         """Deep analyzers over the whole side (parsed once per commit; the Python analyzer reuses unchanged files)."""
         ws = ctx.workspace
@@ -215,14 +294,15 @@ class Pipeline:
         sg = SideGraph(side=side, files=files)
         notes: dict[str, list[str]] = {}
         ok: set[str] = set()
-        for an in self.d.analyzers:
+        for i, an in enumerate(self.d.analyzers):
             if not an.available():
                 notes.setdefault(an.language, []).append(f"{an.name} analyzer unavailable; generic analysis only")
                 continue
             if not any(an.claims(p) for p in files):
                 continue
             try:
-                sg.merge(an.analyze(root, files, side))
+                job = ctx.deep_jobs.get((i, side))
+                sg.merge(job.result() if job is not None else an.analyze(root, files, side))
                 ok.add(an.language)
             except AnalyzerUnavailable as exc:
                 notes.setdefault(an.language, []).append(f"{exc}; generic analysis only")
@@ -292,6 +372,9 @@ class Pipeline:
         for fut, val in ((flight.static, result[:2] if result else None), (flight.final, result)):
             if not fut.done():
                 fut.set_exception(exc) if exc is not None else fut.set_result(val)
+        for fut in flight.calls:  # an early PR call waiting on one of them falls back to `final`
+            if not fut.done():
+                fut.set_exception(RuntimeError("map semantic ended before this call returned"))
 
     def _save_map(self, ctx: Context, smap: SystemMap, fallback: SystemMap, files: set[str]) -> tuple[SystemMap, Path, str]:
         """Store `smap`; if Claude text broke validation, store `fallback` (static) instead (spec §13)."""
@@ -363,14 +446,13 @@ class Pipeline:
         sources = list(dict.fromkeys(["repo:code"] + knowledge.sources))
         smap = copy.deepcopy(static)
         try:
-            plan = self._reuse(ctx, smap, lang)
+            plan = self._reuse(ctx, smap, lang, sg)
         except Exception as exc:  # reuse is an optimisation: on any surprise explain everything
-            smap, plan = copy.deepcopy(static), self._fresh_plan(static, [f"reuse skipped: {type(exc).__name__}: {exc}"[:200]])
+            smap = copy.deepcopy(static)
+            plan = self._fresh_plan(smap, [f"reuse skipped: {type(exc).__name__}: {exc}"[:200]], sg)
         need_domains = not plan.domains_reused and len(business(smap.capabilities)) >= MIN_BUSINESS_FOR_CLAUDE
-        reuse_msg = (f"reused texts of {len(plan.reused)}/{len(plan.reused) + len(plan.ask)} capabilities from {plan.donor_id}"
-                     + (" + summary" if plan.summary_reused else "") + (" + domains" if plan.domains_reused else "")
-                     + f" + phases of {len(plan.phases_reused)} flow(s)" if plan.donor_id else "no earlier map to reuse")
-        if not plan.ask and plan.summary_reused and not need_domains and not plan.phases_ask:  # nothing left for Claude
+        reuse_msg = self._reuse_message(plan)
+        if not plan.ask and not plan.partial and plan.summary_reused and not need_domains and not plan.phases_ask:  # nothing left for Claude
             err = "; ".join(plan.reasons[:5])
             smap.semantic = SemanticStatus("done", tier=tier, dropped_claims=plan.dropped, knowledge_sources=sources,
                                            error=f"dropped {plan.dropped} reused claim(s): {err}" if plan.dropped else None)
@@ -386,52 +468,117 @@ class Pipeline:
         try:
             path = self.d.store.save_system_map(pending, ws.base_files)
         except ValueError:  # a reused text broke validation: start from the plain static map
-            smap, plan = copy.deepcopy(static), self._fresh_plan(static, ["reused texts broke validation"])
+            smap = copy.deepcopy(static)
+            plan = self._fresh_plan(smap, ["reused texts broke validation"], sg)
             need_domains = len(business(smap.capabilities)) >= MIN_BUSINESS_FOR_CLAUDE
-            pending = copy.deepcopy(static)
+            pending = copy.deepcopy(smap)
             pending.semantic = SemanticStatus("pending", tier=tier, knowledge_sources=sources)
             path = self.d.store.save_system_map(pending, ws.base_files)
         doc = self.d.store.load_system_map(ctx.system_map_id)
         assert doc is not None
         ctx.map_doc, ctx.map_path = doc, path
         cfg = self.d.config
-        batches = (capability_batches(smap, cfg.capability_batch, only=plan.ask, sg=sg, char_budget=cfg.capability_chars)
-                   if plan.ask else [])
+        units = plan.ask + [c for c in plan.partial if c not in plan.ask]
+        batches, priority = self._map_batches(ctx, smap, sg, units, plan.partial)
         need_summary = not plan.summary_reused
         # The summary rides along only when the map needs a single (small) batch; otherwise it is its own small call, so
         # a slow or failed capability batch cannot take it down (seen in practice: the first of two batches, which also
         # carried the summary, timed out and the map ended without a system summary).
         solo = need_summary and len(batches) != 1
-        digests = ([system_map_digest(smap, sg, [], docs, first=True, write_summary=True)] if solo else []) + [
-            system_map_digest(smap, sg, batch, docs, first=not solo and i == 0, write_summary=need_summary and not solo and i == 0)
-            for i, batch in enumerate(batches)]  # built now: the PR stages go on to mutate the base graph
+        groups = ([[]] if solo else []) + batches
+        digests = [system_map_digest(smap, sg, batch, docs, first=(solo or bool(batch)) and i == 0,
+                                     write_summary=need_summary and i == 0, partial=plan.partial)
+                   for i, batch in enumerate(groups)]  # built now: the PR stages go on to mutate the base graph
+        known = ({el.id for coll in (smap.capabilities, smap.entities, smap.entry_points, smap.flows) for el in coll}
+                 | {s.id for f in smap.flows for s in f.timeline.steps})
+        targets = [digest_targets(smap, batch, plan.partial) for batch in groups]
+        flight.calls = [Future() for _ in digests]
+        flight.early = EarlyNames(pending, targets, known, 0 if need_summary and digests else None)
         flight.static.set_result((doc, path))
         self.d.source.retain(ctx.pr)  # the background Claude calls read the base worktree
         try:
             self._map_jobs.submit(self._finish_map, ctx, flight, smap, pending, digests, plan, sources, lang,
-                                  need_domains, docs)
+                                  need_domains, docs, targets, known)
         except BaseException:
             self.d.source.release(ctx.pr)
             raise
+        parts = sum(len(v) for c, v in plan.partial.items() if c not in plan.ask)
         return (f"{shape}; {reuse_msg}; static map stored, Claude explaining {len(plan.ask)} capabilit"
-                f"{'y' if len(plan.ask) == 1 else 'ies'} in {len(batches)} call(s)" + (" + summary call" if solo else "")
+                f"{'y' if len(plan.ask) == 1 else 'ies'}" + (f" + {parts} element(s) of {len(units) - len(plan.ask)} more" if parts else "")
+                + f" in {len(batches)} call(s)" + (f" (first: the {len(priority)} this PR touches)" if priority else "")
+                + (" + summary call" if solo else "")
                 + ("; domains" if need_domains else "") + (f"; phases of {len(plan.phases_ask)} flow(s)" if plan.phases_ask else ""))
 
+    def _map_batches(self, ctx: Context, smap: SystemMap, sg: SideGraph, units: list[str],
+                     partial: dict[str, list[str]]) -> tuple[list[list[str]], list[str]]:
+        """Capability batches; when there are several, the capabilities this PR's files belong to (and the owners of
+        the built flows passing through them) go first, in batches of their own, so the PR call can start sooner.
+        Returns (batches, the prioritised capabilities)."""
+        cfg = self.d.config
+        if not units:
+            return [], []
+        allb = capability_batches(smap, cfg.capability_batch, only=units, sg=sg, char_budget=cfg.capability_chars, partial=partial)
+        if len(allb) <= 1:
+            return allb, []
+        ws = ctx.workspace
+        assert ws is not None
+        changed = {p for f in self.d.diff_parser.parse(ws.diff_text) for p in (f.path, f.old_path) if p}
+        mods = {c.refs[0].path: c.capability_id for c in smap.components if c.kind == "module" and c.refs and c.capability_id}
+        touched = {mods[p] for p in changed if p in mods}
+        ep_cap = {ep.id: ep.capability_id for ep in smap.entry_points}
+        touched |= {ep_cap[f.entry_point_id] for f in smap.flows
+                    if f.entry_point_id in ep_cap and any(s.capability_id in touched for s in f.timeline.steps)}
+        first = [c for c in units if c in touched]
+        if not first or len(first) == len(units):
+            return allb, []
+        rest = [c for c in units if c not in touched]
+        return (capability_batches(smap, cfg.capability_batch, only=first, sg=sg, char_budget=cfg.capability_chars, partial=partial)
+                + capability_batches(smap, cfg.capability_batch, only=rest, sg=sg, char_budget=cfg.capability_chars, partial=partial)), first
+
     @staticmethod
-    def _fresh_plan(smap: SystemMap, reasons: list[str]) -> ReusePlan:
+    def _reuse_message(plan: ReusePlan) -> str:
+        if not plan.donor_id:
+            return "no earlier map to reuse"
+        why: dict[str, int] = {}
+        for w in plan.why.values():
+            why[w.split(":")[0]] = why.get(w.split(":")[0], 0) + 1
+        parts = sum(len(v) for v in plan.partial.values())
+        return (f"reused texts of {len(plan.reused)}/{len(plan.reused) + len(plan.ask)} capabilities from {plan.donor_id}"
+                + (" + summary" if plan.summary_reused else "") + (" + domains" if plan.domains_reused else "")
+                + f" + phases of {len(plan.phases_reused)} flow(s)"
+                + (f"; re-explained: {', '.join(f'{n} {k}' for k, n in sorted(why.items()))}" if why else "")
+                + (f"; {parts} element(s) of {len(plan.partial)} reused capabilities re-asked (cited code changed)" if parts else "")
+                + (f"; evidence of reused texts: {plan.evidence_kept} unchanged, {plan.evidence_moved} remapped, "
+                   f"{plan.evidence_failed} not remappable" if plan.evidence_moved or plan.evidence_failed else ""))
+
+    @staticmethod
+    def _fresh_plan(smap: SystemMap, reasons: list[str], sg: SideGraph | None = None) -> ReusePlan:
         """Explain everything (no donor): every non-engineering capability and every eligible flow."""
-        from ...domain.services.map_reuse import reuse_texts
+        Pipeline._set_surfaces(smap, sg)
         plan = reuse_texts(smap, None, {}, {})
         plan.reasons = reasons
         return plan
 
-    def _reuse(self, ctx: Context, smap: SystemMap, lang: str = "") -> ReusePlan:
+    @staticmethod
+    def _set_surfaces(smap: SystemMap, sg: SideGraph | None) -> dict[str, str]:
+        """Every explained capability records its surface fingerprint (what the next map compares)."""
+        surfaces = capability_surfaces(smap, sg)
+        for c in smap.capabilities:
+            if c.category != "engineering":
+                c.text_basis = TextBasis(surfaces[c.id])
+        return surfaces
+
+    def _reuse(self, ctx: Context, smap: SystemMap, lang: str = "", sg: SideGraph | None = None) -> ReusePlan:
         """Texts from the most recent earlier map of this repo whose commit is an ancestor of the new base (else the
-        most recent one). Any stored 2.x map donates, whatever its analyzer version: every text is re-validated."""
+        most recent one). Any stored 2.x map donates, whatever its analyzer version: every text is re-validated, its
+        line-based evidence remapped across the diff between the donor's commit and the new base."""
+        surfaces = self._set_surfaces(smap, sg)
         rows = [r for r in self.d.repo.list_system_maps(ctx.pr.repo_key)
                 if r["cache_key"].endswith("|semantic") and r["semantic_status"] in DONOR_SEMANTIC][:MAX_DONORS]
         ancestors = [r for r in rows if r["commit_sha"] == ctx.pr.merge_base_sha
                      or self.d.source.is_ancestor(ctx.pr, r["commit_sha"], ctx.pr.merge_base_sha)]
+        cfg = self.d.config
+        base = ctx.pr.merge_base_sha
         new_fp: dict[str, str] | None = None
         for r in ancestors + [r for r in rows if r not in ancestors]:
             try:
@@ -440,17 +587,34 @@ class Pipeline:
                     continue
                 if lang and donor_language(donor) != lang:  # reused texts must already be in the output language
                     continue
-                donor_fp = capability_fingerprints(donor, self.d.source.blobs(ctx.pr, donor["commit_sha"]), self.d.language_of)
+                legacy = not has_surfaces(donor)  # stored before 2.5.0: the blob-fingerprint rule decides
+                donor_fp = (capability_fingerprints(donor, self.d.source.blobs(ctx.pr, donor["commit_sha"]), self.d.language_of)
+                            if legacy else None)
             except Exception:  # unreadable / foreign document or commit gone from the cache: try the next one
                 continue
-            if new_fp is None:
-                new_fp = capability_fingerprints(skeleton(smap), self.d.source.blobs(ctx.pr, ctx.pr.merge_base_sha),
-                                                 self.d.language_of)
-            return reuse_texts(smap, donor, new_fp, donor_fp)
+            if legacy and new_fp is None:
+                new_fp = capability_fingerprints(skeleton(smap), self.d.source.blobs(ctx.pr, base), self.d.language_of)
+            change: BaseChange | None
+            if donor["commit_sha"] == base:
+                change = BaseChange(same_commit=True)
+            else:
+                try:
+                    change = BaseChange.from_files(self.d.diff_parser.parse(self.d.source.diff(ctx.pr, donor["commit_sha"], base)))
+                except Exception:  # no diff (e.g. commit gone): evidence must then exist unchanged
+                    change = None
+            ws = ctx.workspace
+            base_lines = {n.code_refs[0].path: max(n.code_refs[0].end_line or 1, 1) for n in (sg.nodes.values() if sg else [])
+                          if n.level == "module" and n.code_refs}
+            lines, changed = capability_lines(skeleton(smap), ws.base_files if ws else set(base_lines), base_lines, change,
+                                              self.d.language_of)
+            return reuse_texts(smap, donor, new_fp, donor_fp, surfaces=surfaces, change=change,
+                               cap_lines=lines, cap_changed=changed, now=now_iso(),
+                               limits=ReuseLimits(cfg.reuse_max_changed_share, cfg.reuse_max_base_changes, cfg.reuse_max_age_days))
         return reuse_texts(smap, None, {}, {})
 
     def _finish_map(self, ctx: Context, flight: "MapFlight", smap: SystemMap, pending: SystemMap, digests: list[dict],
-                    plan: ReusePlan, sources: list[str], lang: str, need_domains: bool = False, docs: list | None = None) -> None:
+                    plan: ReusePlan, sources: list[str], lang: str, need_domains: bool = False, docs: list | None = None,
+                    targets: list[set[str]] | None = None, known: set[str] | None = None) -> None:
         """Background: Claude call (a) for the capabilities that still need texts, then the final map replaces the
         pending one. Always resolves the flight, so waiting analyses never hang."""
         ws = ctx.workspace
@@ -462,7 +626,8 @@ class Pipeline:
             fallback.semantic = (SemanticStatus("done", tier="standard", dropped_claims=plan.dropped, knowledge_sources=sources)
                                  if plan.reused else SemanticStatus("failed", tier="standard", knowledge_sources=sources))
             try:
-                msg = self._explain_system(ctx, smap, digests, plan, sources, lang, need_domains, docs or [])
+                msg = self._explain_system(ctx, smap, digests, plan, sources, lang, need_domains, docs or [],
+                                           targets, known, flight.calls)
             except Exception as exc:  # untrusted reply: any malformed shape → the map without Claude's new texts
                 err = f"semantic reply rejected: {type(exc).__name__}: {exc}"
                 fallback.semantic.error = (f"partial: {err}" if plan.reused else err)[:2000]
@@ -476,33 +641,54 @@ class Pipeline:
             self.d.source.release(ctx.pr)
 
     def _explain_system(self, ctx: Context, smap: SystemMap, digests: list[dict], plan: ReusePlan, sources: list[str],
-                        lang: str, need_domains: bool = False, docs: list | None = None) -> str:
-        """Step 1: capability texts (parallel batches). Step 2, in parallel: domain assignment (validated; retried once
-        with the problems, then static domains) and flow phases (validated per flow)."""
+                        lang: str, need_domains: bool = False, docs: list | None = None,
+                        targets: list[set[str]] | None = None, known: set[str] | None = None,
+                        calls: list[Future] | None = None) -> str:
+        """Step 1: capability texts (parallel batches); each reply only writes what its call asked about (`targets`),
+        and each call's draft is published on `calls` as it returns (an early PR call waits on those). Step 2, in
+        parallel: domain assignment (validated; retried once with the problems, then static domains) and flow phases
+        (validated per flow)."""
         ws = ctx.workspace
         assert ws is not None
         tier = "standard"
         cfg = self.d.config
         reqs = [SemanticRequest("system_map", tier, lang, d, ws.base_root) for d in digests]
         drafts = []
+
+        def call(i: int, req: SemanticRequest):
+            try:
+                d = self.d.semantic.analyze(req)
+            except BaseException as exc:
+                if calls and not calls[i].done():
+                    calls[i].set_exception(exc)
+                raise
+            if calls and not calls[i].done():
+                calls[i].set_result(d)
+            return d
+
         if reqs:
             with ThreadPoolExecutor(max_workers=max(1, min(cfg.semantic_parallel, len(reqs))), thread_name_prefix="claude-map") as pool:
-                drafts = list(pool.map(self.d.semantic.analyze, reqs))  # bounded concurrency; replies keep batch order
+                drafts = list(pool.map(call, range(len(reqs)), reqs))  # bounded concurrency; replies keep batch order
         replies: list[dict] = []
         errors: list[str] = []
         status = "done"
         stats = [call_stats("capabilities", [d for d, g in zip(drafts, digests) if g["capabilities"]]),
                  call_stats("summary", [d for d, g in zip(drafts, digests) if not g["capabilities"]])]
-        for draft in drafts:
+        for i, draft in enumerate(drafts):
             if draft.status != "done":
                 status = draft.status if status == "done" else status
                 errors.append(draft.error or draft.status)
                 continue
-            replies.append(draft.payload)
+            replies.append(restrict_reply(draft.payload, targets[i], known) if targets is not None and known is not None
+                           else draft.payload)
         if reqs and not replies and not plan.reused:
             smap.semantic = SemanticStatus(status, tier=tier, knowledge_sources=sources, error="; ".join(errors)[:2000])
             return f"semantic {status}; Claude {'; '.join(x for x in stats if x)}"
         r = apply_system_semantics(smap, replies)  # raises on a malformed shape; the caller keeps the static map
+        written, asked = now_iso(), set(plan.ask)
+        for c in smap.capabilities:  # texts written now: their age and change count start over
+            if c.id in asked and c.text_basis is not None and c.business_name is not None and c.business_name.source == "semantic":
+                c.text_basis = TextBasis(c.text_basis.surface, written, ctx.pr.merge_base_sha)
         dropped, reasons, notes = r.dropped + plan.dropped, plan.reasons[:3] + r.reasons[:5], []
         if smap.system.summary is None and plan.summary_fallback is not None:
             smap.system.summary = plan.summary_fallback
@@ -539,7 +725,8 @@ class Pipeline:
                                        error=(f"partial: {err}" if errors else (f"dropped {dropped} claim(s): {err}" if dropped else None)))
         failed = sum(1 for d in drafts if d.status != "done")
         return (f"map semantic done in {len(reqs)} parallel call(s) for {len(plan.ask)} capabilities"
-                f" ({len(plan.reused)} reused" + (f"; {failed} call(s) failed" if failed else "") + f"); {'; '.join(notes)}; "
+                + (f" + {sum(len(v) for v in plan.partial.values())} element(s)" if plan.partial else "")
+                + f" ({len(plan.reused)} reused" + (f"; {failed} call(s) failed" if failed else "") + f"); {'; '.join(notes)}; "
                 f"dropped {dropped} claim(s); Claude {'; '.join(x for x in stats if x)}")
 
     def _domains(self, smap: SystemMap, lang: str, root: Path, docs: list,
@@ -752,24 +939,10 @@ class Pipeline:
                     s.business_label = Text(lab["text"], lab["source"], list(lab["evidence_refs"]))
         b.map_findings(ctx.findings, ctx.flow_nodes, ctx.lang)  # business impact in the map's business names
 
-    def stage_semantic(self, ctx: Context) -> str:
-        g, ws, k = ctx.graph, ctx.workspace, ctx.knowledge
-        assert g is not None and ws is not None and k is not None and ctx.map_index is not None
-        result = score_change(ctx.files, g)
-        decision, tier = decide(ctx.request.semantic_mode, result)
-        sources = list(dict.fromkeys(["pr:metadata", "pr:diff"] + k.sources))
-        flight = ctx.map_flight
-        notes: list[str] = list(k.notes)
-        if tier != "none" or (flight is not None and not flight.final.done()):
-            notes.append(self._publish_static(ctx, tier, decision, sources))
-        if flight is not None:
-            doc, path, map_msg = flight.final.result()  # Claude call (a) for the map: the PR call uses its names
-            if map_msg:
-                notes.append(map_msg)
-            self._use_map(ctx, doc, path)
-        if tier == "none":
-            ctx.semantic = SemanticStatus("skipped", tier="none", decision=decision, knowledge_sources=sources)
-            raise StageSkipped("; ".join([f"score {result.score:g}; mode {decision.mode}"] + notes))
+    def _pr_data(self, ctx: Context, tier: str) -> dict:
+        """Claude call (b)'s data, from the map names in `ctx.map_index`."""
+        ws, k = ctx.workspace, ctx.knowledge
+        assert ws is not None and k is not None and ctx.map_index is not None and ctx.builder is not None
         mi = ctx.map_index
         ha = ctx.builder.ha
         names = {**mi.names, **{el.id: el.technical_name for coll in (ha.capabilities, ha.flows) for el in coll}}
@@ -800,7 +973,106 @@ class Pipeline:
                                 "line": r.line, "text": r.text,
                                 **({"source": "instructions", "applies_to": scope or "(whole repository)"}
                                    if (scope := instruction_scope(r.path)) is not None else {})} for r in k.rules])
-        draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, data, ws.head_root))
+        return data
+
+    def _early_names(self, ctx: Context, flight: "MapFlight") -> MapIndex | None:
+        """The map's names as the final map will hold them for everything the PR call shows (the names of the elements
+        it lists, the step labels of its flows, the system summary), as soon as the calls writing those returned —
+        without waiting for the other capability calls, domains or phases. None (wait for the whole map, as before)
+        when one of them failed or did not write what it should have."""
+        e = flight.early
+        if e is None or len(flight.calls) != len(e.targets):
+            return None
+        need = ({i.target_id for i in ctx.impacts} | {fc.flow_id for fc in ctx.flow_changes}
+                | {s.id for fc in ctx.flow_changes for s in fc.steps})
+        wanted = sorted({i for i, t in enumerate(e.targets) if t & need} | ({e.summary_call} if e.summary_call is not None else set()))
+        replies = []
+        for i in wanted:
+            try:
+                d = flight.calls[i].result()
+            except Exception:
+                return None
+            if d.status != "done":
+                return None
+            replies.append(restrict_reply(d.payload, e.targets[i], e.known))
+        m = _light_copy(e.pending)
+        try:
+            apply_system_semantics(m, replies)  # same replies, same order, same map as the final map's step 1
+        except Exception:
+            return None
+        if e.summary_call is not None and m.system.summary is None:
+            return None  # the summary call wrote none: the final map's summary depends on the other calls
+        written = set().union(*(e.targets[i] for i in wanted)) if wanted else set()
+        mi = copy.copy(ctx.map_index)
+        assert mi is not None
+        mi.names, mi.step_labels = dict(mi.names), dict(mi.step_labels)
+        for coll in (m.capabilities, m.entities, m.entry_points, m.flows):
+            for el in coll:
+                if el.id in written:
+                    mi.names[el.id] = el.business_name.text if el.business_name else el.technical_name
+        for f in m.flows:
+            for st in f.timeline.steps:
+                if st.id in written and st.business_label:
+                    t = st.business_label
+                    mi.step_labels[st.id] = {"text": t.text, "source": t.source, "evidence_refs": list(t.evidence_refs)}
+        if m.system.summary is not None:
+            t = m.system.summary
+            mi.summary = {"text": t.text, "source": t.source, "evidence_refs": list(t.evidence_refs)}
+        return mi
+
+    def _use_index(self, ctx: Context, mi: MapIndex) -> None:
+        """Like `_use_map` with names that are not stored yet (the early PR call); the map document stays the pending one."""
+        b = ctx.builder
+        assert b is not None
+        ctx.map_index = b.mi = mi
+        for fc in ctx.flow_changes:
+            for s in fc.steps:
+                lab = mi.step_labels.get(s.id) if s.step_change_status == "unchanged" else None
+                if lab:
+                    s.business_label = Text(lab["text"], lab["source"], list(lab["evidence_refs"]))
+        b.map_findings(ctx.findings, ctx.flow_nodes, ctx.lang)
+
+    def stage_semantic(self, ctx: Context) -> str:
+        g, ws, k = ctx.graph, ctx.workspace, ctx.knowledge
+        assert g is not None and ws is not None and k is not None and ctx.map_index is not None
+        result = score_change(ctx.files, g)
+        decision, tier = decide(ctx.request.semantic_mode, result)
+        sources = list(dict.fromkeys(["pr:metadata", "pr:diff"] + k.sources))
+        flight = ctx.map_flight
+        notes: list[str] = list(k.notes)
+        if tier != "none" or (flight is not None and not flight.final.done()):
+            notes.append(self._publish_static(ctx, tier, decision, sources))
+        early = None
+        if flight is not None and tier != "none" and self.d.config.pr_early_start and not flight.final.done():
+            early = self._early_names(ctx, flight)  # waits only for the map calls writing what the PR call shows
+        if flight is not None and early is None:
+            doc, path, map_msg = flight.final.result()  # Claude call (a) for the map: the PR call uses its names
+            if map_msg:
+                notes.append(map_msg)
+            self._use_map(ctx, doc, path)
+        if tier == "none":
+            ctx.semantic = SemanticStatus("skipped", tier="none", decision=decision, knowledge_sources=sources)
+            raise StageSkipped("; ".join([f"score {result.score:g}; mode {decision.mode}"] + notes))
+        if early is None:
+            draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, self._pr_data(ctx, tier), ws.head_root))
+        else:
+            assert flight is not None
+            labels = [(s, s.business_label) for fc in ctx.flow_changes for s in fc.steps]
+            self._use_index(ctx, early)
+            data = self._pr_data(ctx, tier)
+            draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, data, ws.head_root))
+            doc, path, map_msg = flight.final.result()  # the overlay is still laid over the final map, as before
+            if map_msg:
+                notes.append(map_msg)
+            for st, lab in labels:
+                st.business_label = lab
+            self._use_map(ctx, doc, path)
+            final = self._pr_data(ctx, tier)
+            if final == data:
+                notes.append("PR call started before the map's remaining calls finished")
+            else:  # the stored map differs from what the early call was shown (e.g. it failed validation): ask again
+                notes.append(call_stats("PR (early, superseded)", [draft]))
+                draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, final, ws.head_root))
         notes.append(call_stats("PR", [draft]))
         if draft.status != "done":
             ctx.semantic = SemanticStatus(draft.status, tier=tier, decision=decision, knowledge_sources=sources,

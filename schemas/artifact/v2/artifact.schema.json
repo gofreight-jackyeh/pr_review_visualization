@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pr-explorer.local/schemas/artifact/v2/artifact.schema.json",
-  "$comment": "2.4.0 (2026-11-12): system.repo_kind (application | infrastructure). 2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
+  "$comment": "2.5.0 (2026-11-12): capability text_basis (incremental reuse bookkeeping). 2.4.0 (2026-11-12): system.repo_kind (application | infrastructure). 2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
   "title": "PR Review Explorer Artifact v2",
   "description": "Two document kinds share one schema. system_map: the whole repository at one commit (cached per repo+commit, reused by every PR). pr_overlay: one PR laid over a system map. Structure comes from static analysis; Claude only writes Text items, each of which must cite evidence (spec v2 §5 Layer 7).",
   "oneOf": [
@@ -106,7 +106,21 @@
         "language": { "type": "string" },
         "entity_ids": { "$ref": "#/$defs/Ids" },
         "entry_point_ids": { "$ref": "#/$defs/Ids" },
-        "component_count": { "type": "integer", "minimum": 0 }
+        "component_count": { "type": "integer", "minimum": 0 },
+        "text_basis": { "$ref": "#/$defs/TextBasis" }
+      }
+    },
+    "TextBasis": {
+      "description": "Static bookkeeping for reusing Claude texts on a later commit (2.5.0; absent = none recorded). surface: fingerprint of the capability's business-facing surface at this commit (entry points, entities and fields, interfaces, built flows and their steps, relations, name/path); a later map re-asks Claude only when it differs. written_at / written_commit: when and at which commit Claude wrote the capability's texts; base_changes: later base commits that reused them; changed_lines: lines of its code files changed since.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "base_changes", "changed_lines"],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1 },
+        "written_at": { "type": "string", "format": "date-time" },
+        "written_commit": { "$ref": "#/$defs/Sha" },
+        "base_changes": { "type": "integer", "minimum": 0 },
+        "changed_lines": { "type": "integer", "minimum": 0 }
       }
     },
     "Entity": {
@@ -271,7 +285,7 @@
                    "flow_budget", "architecture_rules", "interfaces", "evidence", "semantic", "disclaimer"],
       "properties": {
         "kind": { "const": "system_map" },
-        "schema_version": { "const": "2.4.0" },
+        "schema_version": { "const": "2.5.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "system_map_id": { "$ref": "#/$defs/Id" },
         "generated_at": { "type": "string", "format": "date-time" },
@@ -502,7 +516,7 @@
                    "findings", "architecture_checks", "evidence", "semantic", "walkthrough"],
       "properties": {
         "kind": { "const": "pr_overlay" },
-        "schema_version": { "const": "2.4.0" },
+        "schema_version": { "const": "2.5.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "overlay_id": { "$ref": "#/$defs/Id" },
         "system_map_id": { "$ref": "#/$defs/Id" },

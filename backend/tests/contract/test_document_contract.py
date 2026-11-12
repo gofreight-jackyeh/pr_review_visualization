@@ -132,3 +132,58 @@ def test_frontend_model_invariants(shop_docs):
             assert s["capability_id"] in by_id and set(s["evidence_refs"]) <= evidence
     for r in smap["relations"] + ha["relations"]:
         assert r["source"] in by_id and r["target"] in by_id
+
+
+def _mutations(doc: dict, limit: int = 50):
+    """Deterministic broken copies: each drops a key, swaps a value's type or adds an unknown key somewhere."""
+    spots: list[tuple[dict, str]] = []
+
+    def walk(v):
+        if isinstance(v, dict):
+            spots.extend((v, k) for k in v)
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+
+    walk(doc)
+    step = max(1, len(spots) // limit)
+    for i, (holder, key) in enumerate(spots[::step][:limit]):
+        kind = i % 3
+        orig = holder[key]
+        if kind == 0:
+            del holder[key]
+        elif kind == 1:
+            holder[key] = 7 if isinstance(orig, str) else "x"
+        else:
+            holder["zz_unknown"] = 1
+        yield doc
+        if kind == 2:
+            del holder["zz_unknown"]
+        holder[key] = orig  # dict order may change; schema errors do not depend on it
+
+
+def test_inlined_schema_reports_exactly_the_original_errors(shop_docs):
+    """The validator runs on a $ref-inlined copy of the schema (speed); valid and broken documents must give the same
+    error list as the schema as written."""
+    from jsonschema import Draft202012Validator
+
+    from pr_explorer.infrastructure.persistence.schema_validator import _validator
+
+    original = Draft202012Validator(json.loads(find_schema_path().read_text("utf-8")))
+    fast = _validator(str(find_schema_path()))
+    assert fast.schema != original.schema
+
+    def errs(v, doc):
+        return [(list(e.absolute_path), e.message) for e in v.iter_errors(doc)]
+
+    smap, ov, _, _ = shop_docs
+    broken = 0
+    for doc in (copy.deepcopy(smap), copy.deepcopy(ov)):
+        assert errs(fast, doc) == errs(original, doc) == []
+        for bad in _mutations(doc):
+            want = errs(original, bad)
+            assert errs(fast, bad) == want
+            broken += bool(want)
+    assert broken > 60

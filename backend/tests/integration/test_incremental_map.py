@@ -49,7 +49,9 @@ def map_calls(claude: SmartClaude) -> list[list[str]]:
     return [[c["id"] for c in d["capabilities"]] for d in claude.map_digests]
 
 
-def test_moved_base_reasks_only_the_changed_capability(fresh_shop, home):
+def test_moved_base_with_an_implementation_only_change_reuses_every_text(fresh_shop, home):
+    """2.6.0: main changed inventory's code but nothing business-facing (a comment), so no capability is re-explained
+    (before 2.6.0 every blob change re-asked its capability: here cap:inventory)."""
     claude = SmartClaude()
     c = build_container(home=home, claude_runner=RecordingRunner(claude))
     p1, rec1 = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard"))
@@ -59,20 +61,97 @@ def test_moved_base_reasks_only_the_changed_capability(fresh_shop, home):
     p2, rec2 = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard", head="feature/on-new-base"))
     smap2, _ = load_docs(p2)
     assert rec2["system_map_id"] != rec1["system_map_id"] and smap2["commit_sha"] != smap1["commit_sha"]
-    assert map_calls(claude)[1:] == [["cap:inventory"]]  # unchanged capabilities were NOT sent to Claude
-    assert claude.map_digests[1]["write_system_summary"] is False  # 1/7 changed ≤ 25%: summary reused
+    assert map_calls(claude)[1:] == []  # implementation-only: nothing re-asked
     # same business capabilities → domains reused; unchanged step IDs → phases reused: neither step is asked again
-    assert ordered(claude.calls) == ["system_map", "domains", "phases", "pr", "system_map", "pr"]
+    assert ordered(claude.calls) == ["system_map", "domains", "phases", "pr", "pr"]
     assert smap2["domains"] == smap1["domains"] and all(d["source"] == "semantic" for d in smap2["domains"])
     assert [f.get("phases") for f in smap2["flows"]] == [f.get("phases") for f in smap1["flows"]]
     caps = {x["id"]: x for x in smap2["capabilities"]}
     assert all("business_name" in x for x in caps.values() if x["category"] != "engineering") and caps["cap:orders"]["business_name"]["text"] == "Biz orders"
     assert smap2["system"]["summary"]["text"] == "An online shop backend." and smap2["semantic"]["status"] == "done"
+    # the reused texts keep where they were written and count the base change
+    inv1, inv2 = (next(x for x in m["capabilities"] if x["id"] == "cap:inventory")["text_basis"] for m in (smap1, smap2))
+    assert inv2["surface"] == inv1["surface"] and inv2["written_at"] == inv1["written_at"]
+    assert inv2["written_commit"] == smap1["commit_sha"] and inv2["base_changes"] == 1 and inv2["changed_lines"] == 2
     stages = {s["name"]: s["message"] for s in rec2["stages"]}
-    assert "reused texts of 6/7 capabilities" in stages["system_map"] and "+ domains" in stages["system_map"]
-    # every Claude call kind reports its prompt size and wall time (find the slow call without guessing)
-    assert re.search(r"Claude capabilities call \d+k? chars, \d+ s", stages["semantic"]) and re.search(r"PR call \d+k chars, \d+ s", stages["semantic"])
+    assert "reused texts of 7/7 capabilities" in stages["system_map"] and "+ domains" in stages["system_map"]
+    assert re.search(r"PR call \d+k chars, \d+ s", stages["semantic"])
     assert (home / "logs" / "semantic-calls.jsonl").read_text().count('"kind": "pr"') == 2
+
+
+def move_main_surface(repo: Path) -> None:
+    """main adds a field to an inventory model (business-facing: the entity's fields) and a PR branch starts from it."""
+    git(repo, "checkout", "-q", "main")
+    models = repo / "inventory" / "models.py"
+    models.write_text(models.read_text().replace(
+        "    quantity = models.PositiveIntegerField(default=0)\n",
+        "    quantity = models.PositiveIntegerField(default=0)\n    location = models.CharField(max_length=40, blank=True)\n", 1))
+    commit(repo, "inventory: stock location")
+    git(repo, "checkout", "-q", "-b", "feature/on-new-base")
+    (repo / "orders" / "constants.py").write_text("MAX_ITEMS = 50\n")
+    commit(repo, "orders constant")
+    git(repo, "checkout", "-q", "main")
+
+
+def test_moved_base_reasks_only_the_capability_whose_surface_changed(fresh_shop, home):
+    claude = SmartClaude()
+    c = build_container(home=home, claude_runner=RecordingRunner(claude))
+    p1, rec1 = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard"))
+    smap1, _ = load_docs(p1)
+    move_main_surface(fresh_shop)
+    p2, rec2 = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard", head="feature/on-new-base"))
+    smap2, _ = load_docs(p2)
+    assert map_calls(claude)[1:] == [["cap:inventory"]]  # unchanged capabilities were NOT sent to Claude
+    assert claude.map_digests[1]["write_system_summary"] is False  # 1/7 changed ≤ 25%: summary reused
+    assert ordered(claude.calls) == ["system_map", "domains", "phases", "pr", "system_map", "pr"]
+    inv = next(x for x in smap2["capabilities"] if x["id"] == "cap:inventory")
+    assert inv["business_name"]["text"] == "Biz inventory" and inv["text_basis"]["written_commit"] == smap2["commit_sha"]
+    assert inv["text_basis"]["base_changes"] == 0 and inv["text_basis"]["surface"] != next(
+        x for x in smap1["capabilities"] if x["id"] == "cap:inventory")["text_basis"]["surface"]
+    stages = {s["name"]: s["message"] for s in rec2["stages"]}
+    assert "reused texts of 6/7 capabilities" in stages["system_map"] and "re-explained: 1 surface" in stages["system_map"]
+    assert re.search(r"Claude capabilities call \d+k? chars, \d+ s", stages["semantic"]) and re.search(r"PR call \d+k chars, \d+ s", stages["semantic"])
+
+
+def move_main_shift(repo: Path) -> None:
+    """main inserts a comment at the top of inventory/models.py (every line below moves) and a docstring inside the
+    StockItem class (the range its entity cites changes; its fields do not); a PR branch starts from it."""
+    git(repo, "checkout", "-q", "main")
+    models = repo / "inventory" / "models.py"
+    models.write_text("# stock levels\n" + models.read_text().replace(
+        "class StockItem(TimeStampedModel):\n", "class StockItem(TimeStampedModel):\n    \"\"\"Units on hand per product.\"\"\"\n\n", 1))
+    commit(repo, "inventory: comments")
+    git(repo, "checkout", "-q", "-b", "feature/on-new-base")
+    (repo / "orders" / "constants.py").write_text("MAX_ITEMS = 50\n")
+    commit(repo, "orders constant")
+    git(repo, "checkout", "-q", "main")
+
+
+def test_moved_evidence_is_remapped_and_only_an_element_whose_cited_code_changed_is_reasked(fresh_shop, home):
+    claude = SmartClaude()
+    c = build_container(home=home, claude_runner=RecordingRunner(claude))
+    p1, _ = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard"))
+    smap1, _ = load_docs(p1)
+    move_main_shift(fresh_shop)
+    p2, rec2 = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard", head="feature/on-new-base"))
+    smap2, _ = load_docs(p2)
+    e1 = {e["technical_name"]: e for e in smap1["entities"]}
+    e2 = {e["technical_name"]: e for e in smap2["entities"]}
+    # one partial call: the inventory capability with only the StockItem entity (the class it cites changed)
+    asked = claude.map_digests[1:]
+    assert len(asked) == 1 and [x["id"] for x in asked[0]["capabilities"]] == ["cap:inventory"]
+    assert [x["id"] for x in asked[0]["entities"]] == [e2["StockItem"]["id"]]
+    assert asked[0]["entry_points"] == [] and asked[0]["flows"] == []
+    assert e2["StockItem"]["business_name"]["text"] == "Data StockItem"  # rewritten by that call
+    # Reservation moved three lines down: its reused text cites the remapped evidence
+    old_ev, new_ev = e1["Reservation"]["business_name"]["evidence_refs"], e2["Reservation"]["business_name"]["evidence_refs"]
+    assert e2["Reservation"]["business_name"]["text"] == "Data Reservation" and old_ev != new_ev
+    assert set(new_ev) <= {e["id"] for e in smap2["evidence"]}
+    inv = next(x for x in smap2["capabilities"] if x["id"] == "cap:inventory")
+    assert inv["text_basis"]["written_commit"] == smap1["commit_sha"]  # the capability's own texts were kept
+    msg = {s["name"]: s["message"] for s in rec2["stages"]}["system_map"]
+    assert "reused texts of 7/7 capabilities" in msg and re.search(r"[1-9]\d* remapped", msg), msg
+    assert "1 element(s) of 1 reused" in msg, msg
 
 
 def test_donor_with_an_older_analyzer_version_still_donates(shop_repo, home):
@@ -189,22 +268,56 @@ def test_static_findings_follow_the_repository_language(shop_docs):
     assert "參數" in sig["title"] and sig["business_impact"].startswith("影響的業務能力")
 
 
-def test_worktrees_are_removed_after_an_analysis_and_stale_ones_pruned(shop_repo, home):
+def test_worktrees_are_kept_idle_after_an_analysis_and_stale_ones_pruned(shop_repo, home):
     c = build_container(home=home)
     _, rec = c.analyze.analyze_sync(local_request(shop_repo))
     wt = home / "worktrees"
-    assert not wt.exists() or not any(p for p in wt.rglob("*") if p.is_dir() and (p / ".git").exists())
+    kept = {p.resolve() for p in wt.glob("*/*") if (p / ".git").exists()}
+    assert {p.name for p in kept} == {git(shop_repo, "rev-parse", r) for r in ("main", "feature/discount")}
     assert c.freshness(rec["overlay_id"])["stale"] is False  # freshness never needed a worktree
-    # a worktree left behind by an earlier (killed) server is pruned at the next start; unrelated dirs survive
+    # worktrees left behind by an earlier server (idle or killed mid-analysis) are pruned at the next start;
+    # unrelated dirs survive
     cache = GitCache(home, SubprocessRunner())
     key = next((home / "repos").glob("*.git")).name.removesuffix(".git")
-    left = cache.worktree(key, git(shop_repo, "rev-parse", "main"))
+    left = cache.worktree(key, git(shop_repo, "rev-parse", "main"))  # held by this (killed) server
     other = wt / "not-ours"
     other.mkdir(parents=True)
     assert (left / ".git").exists()
-    assert build_container(home=home).prune_worktrees() == [left.resolve()]
+    assert set(build_container(home=home).prune_worktrees()) == kept | {left.resolve()}
     assert not left.exists() and other.exists()
     assert len(cache.git(["worktree", "list"], key=key).splitlines()) == 1  # only the bare repo itself
+
+
+def test_an_idle_worktree_is_reused_and_recycled_to_exactly_the_other_commit(fresh_shop, home):
+    """Same commit: the idle checkout is reset in place. Another commit: the idle checkout is moved and holds exactly that
+    commit's files (stray and edited files reset); at most MAX_IDLE stay idle, and they expire after idle_ttl."""
+    move_main(fresh_shop)
+    cache = GitCache(home, SubprocessRunner(), idle_ttl=600)
+    cache.ensure_clone(key := "local-shop", str(fresh_shop))
+    a, b, d = (git(fresh_shop, "rev-parse", r) for r in ("main~1", "main", "feature/discount"))
+    pa = cache.worktree(key, a)
+    (pa / "stray.txt").write_text("not in any commit")
+    (pa / "README.md").write_text("changed in place")
+    cache.release_worktree(key, a)
+    assert (pa / ".git").exists()  # idle, not removed
+    assert cache.worktree(key, a) == pa and not (pa / "stray.txt").exists()  # same commit: reset in place
+    assert (pa / "README.md").read_text() != "changed in place"
+    cache.release_worktree(key, a)
+    pb = cache.worktree(key, b)
+    assert not pa.exists() and pb.name == b
+    tracked = set(cache.git(["ls-tree", "-r", "--name-only", b], key=key).split())
+    on_disk = {str(p.relative_to(pb)) for p in pb.rglob("*") if p.is_file() and p.name != ".git"}
+    assert on_disk == tracked
+    assert all((pb / f).read_bytes() == subprocess.run(["git", "--git-dir", str(cache.repo_dir(key)), "show", f"{b}:{f}"],
+                                                        capture_output=True, check=True).stdout for f in tracked)
+    pa = cache.worktree(key, a)
+    pd = cache.worktree(key, d)
+    for sha in (b, a, d):
+        cache.release_worktree(key, sha)
+    assert not pb.exists() and pa.exists() and pd.exists()  # the oldest idle one went (MAX_IDLE = 2)
+    assert cache.remove_expired(now=time.monotonic() + 601) == [pa, pd]
+    assert not pa.exists() and not pd.exists()
+    assert len(cache.git(["worktree", "list"], key=key).splitlines()) == 1
 
 
 def test_a_stored_2_0_0_map_still_donates(shop_repo, home):
@@ -221,7 +334,7 @@ def test_a_stored_2_0_0_map_still_donates(shop_repo, home):
     for k in ("domains", "architecture_rules"):
         doc.pop(k)
     for x in doc["capabilities"]:
-        for k in ("category", "parent_capability_id", "domain_id"):
+        for k in ("category", "parent_capability_id", "domain_id", "text_basis"):
             x.pop(k, None)
     for f in doc["flows"]:
         f.pop("phases", None)
@@ -241,11 +354,12 @@ def test_a_stored_2_0_0_map_still_donates(shop_repo, home):
 
 
 def move_main_widely(repo: Path) -> None:
-    """main changes three of the seven explained capabilities (3/7 > 25%): the system summary must be re-asked."""
+    """main changes the surface of three of the seven explained capabilities (3/7 > 25%): the system summary must be
+    re-asked."""
     git(repo, "checkout", "-q", "main")
-    for app in ("inventory", "orders", "payments"):
+    for app in ("inventory", "orders", "payments"):  # a new model each: a business-facing (surface) change
         with open(repo / app / "models.py", "a") as f:
-            f.write(f"\n# {app}: reviewed\n")
+            f.write(f"\n\nclass {app.title()}Note(models.Model):\n    text = models.TextField()\n")
     commit(repo, "three apps")
     git(repo, "checkout", "-q", "-b", "feature/on-wide-base")
     (repo / "orders" / "constants.py").write_text("MAX_ITEMS = 50\n")
@@ -272,7 +386,7 @@ def test_summary_is_reasked_over_25_percent_and_survives_a_timed_out_batch(fresh
                 return claude_envelope({"system_summary": {"text": "The shop, re-explained.", "cites": [d["evidence_id"] for d in data["docs"][:1]]}})
         return claude(args, prompt)
 
-    cfg = PipelineConfig(capability_batch=2)  # several batches, like a large repo
+    cfg = PipelineConfig(capability_batch=2, output_language="en")  # several batches, like a large repo
     c = build_container(home=home, claude_runner=RecordingRunner(handler), config=cfg)
     p1, _ = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard"))
     assert load_docs(p1)[0]["system"]["summary"]["text"] == "An online shop backend."
@@ -285,6 +399,7 @@ def test_summary_is_reasked_over_25_percent_and_survives_a_timed_out_batch(fresh
     assert len(asked) == 1 and asked[0]["capabilities"] == []  # re-asked (3/7 > 25%), in its own call
     assert smap2["system"]["summary"]["text"] == "The shop, re-explained."  # despite every capability batch timing out
     assert "failed" in {s["name"]: s["message"] for s in rec2["stages"]}["semantic"]
+    assert "re-explained: 3 surface" in {s["name"]: s["message"] for s in rec2["stages"]}["system_map"]
 
     # the re-ask itself fails too → the earlier map's (still grounded) summary is kept rather than none
     shutil.rmtree(home)
@@ -297,3 +412,61 @@ def test_summary_is_reasked_over_25_percent_and_survives_a_timed_out_batch(fresh
     mode.update(summary="timeout")
     p3, _ = c.analyze.analyze_sync(local_request(fresh_shop, mode="standard", head="feature/on-wide-base"))
     assert load_docs(p3)[0]["system"]["summary"]["text"] == "An online shop backend."
+
+
+def _run_pr(repo: Path, home: Path, early: bool, fail_orders: bool = False, hold: bool | None = None):
+    """One analysis with SmartClaude. With `early`, the domain and phase calls hold until the PR call has arrived, so
+    the analysis only finishes promptly when the PR call does not wait for them. Returns (PR call data, events, docs,
+    record)."""
+    from pr_explorer.infrastructure.process.runner import RunResult
+
+    smart, pr_data, events, pr_seen = SmartClaude(), [], [], threading.Event()
+
+    def handler(args, prompt):
+        kind = call_kind(args)
+        if kind == "pr":
+            pr_data.append(prompt_data(prompt))
+            events.append("pr")
+            pr_seen.set()
+        elif kind in ("domains", "phases") and (early if hold is None else hold):
+            events.append(f"{kind}:{'after pr' if pr_seen.wait(20) else 'gave up waiting'}")
+        elif kind == "system_map" and fail_orders and "cap:orders" in [c["id"] for c in prompt_data(prompt)["capabilities"]]:
+            return RunResult(124, "", "claude: timed out after 600s")
+        return smart(args, prompt)
+
+    cfg = PipelineConfig(capability_batch=2, output_language="en", pr_early_start=early)  # several batches
+    c = build_container(home=home, claude_runner=RecordingRunner(handler), config=cfg)
+    paths, rec = c.analyze.analyze_sync(local_request(repo, mode="standard"))
+    return pr_data, events, load_docs(paths), rec
+
+
+def _stable(doc: dict) -> dict:
+    """A document without its generation time and the call timings in its messages."""
+    out = {k: v for k, v in doc.items() if k not in ("generated_at", "semantic")}
+    for c in out.get("capabilities", []):
+        (c.get("text_basis") or {}).pop("written_at", None)
+    return out
+
+
+def test_early_pr_call_gets_the_same_prompt_without_waiting_for_domains_and_phases(shop_repo, tmp_path):
+    wait_data, wait_events, (wait_map, wait_ov), _ = _run_pr(shop_repo, tmp_path / "a", early=False)
+    early_data, early_events, (early_map, early_ov), rec = _run_pr(shop_repo, tmp_path / "b", early=True)
+    assert len(wait_data) == len(early_data) == 1
+    assert early_data[0] == wait_data[0]  # byte-identical PR prompt data: same names, labels, summary
+    assert early_data[0]["system"]["summary"] == "An online shop backend."
+    assert any(e["name"].startswith("Flow ") for e in early_data[0]["elements"] + early_data[0]["flow_changes"]
+               if "name" in e)  # the early call already saw Claude's names, not technical ones
+    # the PR call went out while the domain and phase calls were still open
+    assert early_events[0] == "pr" and all(e.endswith("after pr") for e in early_events[1:]), early_events
+    stages = {s["name"]: s["message"] for s in rec["stages"]}
+    assert "PR call started before the map's remaining calls finished" in stages["semantic"]
+    assert "(first: the" in stages["system_map"]  # the capabilities this PR touches were asked first
+    assert _stable(early_map) == _stable(wait_map) and _stable(early_ov) == _stable(wait_ov)
+
+
+def test_early_pr_call_falls_back_to_the_whole_map_when_a_batch_it_needs_failed(shop_repo, tmp_path):
+    wait_data, _, (_, wait_ov), _ = _run_pr(shop_repo, tmp_path / "a", early=False, fail_orders=True)
+    early_data, _, (_, early_ov), rec = _run_pr(shop_repo, tmp_path / "b", early=True, fail_orders=True, hold=False)
+    assert early_data == wait_data and len(early_data) == 1
+    assert "PR call started before" not in {s["name"]: s["message"] for s in rec["stages"]}["semantic"]
+    assert _stable(early_ov) == _stable(wait_ov)

@@ -71,3 +71,20 @@ test("symlinks and non-regular files are never read (untrusted PR content)", asy
     assert.ok(!JSON.stringify(res.files).includes("outside.ts"));
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
+test("a file the checker cannot handle is skipped, the others are still analyzed", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ts-deep-")));
+  // 1,500 nested `if`s narrowing one variable: parses, but overflows the checker's flow analysis on the stack below
+  fs.writeFileSync(path.join(dir, "deep.js"), "function g(t){var x=t;" + Array.from({ length: 1500 }, (_, i) => `if(x==="${i}")`).join("") + "x.y();}\n");
+  fs.writeFileSync(path.join(dir, "a.ts"), "import { b } from './b';\nexport function a() { return b(); }\n");
+  fs.writeFileSync(path.join(dir, "b.ts"), "export function b() { return 1; }\n");
+  const res = spawnSync("node", ["--stack-size=900", cli], { input: JSON.stringify({ root: dir, files: ["deep.js", "a.ts", "b.ts"] }), encoding: "utf8" });
+  assert.equal(res.status, 0, res.stderr);
+  const o = JSON.parse(res.stdout);
+  assert.deepEqual(o.files.map((x) => x.path), ["a.ts", "b.ts"]);
+  assert.ok(o.diagnostics.some((d) => d.startsWith("not analyzed (") && d.endsWith("): deep.js")), o.diagnostics);
+  const call = o.files[0].calls.find((c) => c.callee_text === "b");  // the checker still works after the failure
+  assert.deepEqual(call.resolved, { path: "b.ts", symbol: "b" });
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -20,7 +20,8 @@ PRODUCER = Producer("ts_analyzer", "1")
 TS_LANGS = {"typescript", "javascript"}
 LANG = "ts"
 SKIP = {"node_modules", "dist", "build", ".next", "coverage"}
-MAX_FILES = 3000
+MAX_FILES = 40_000  # whole-program safety cap (same as the Python analyzer); a capped run says so in its notes
+LOW_MEMORY_FILES = 3000  # retried with this many files when the whole program does not fit Node's heap
 MAX_BYTES = 1_000_000  # keep in sync with MAX_BYTES in tools/ts-analyzer/src/analyze.ts
 
 
@@ -29,7 +30,7 @@ class TsAnalyzerUnavailable(AnalyzerUnavailable):
 
 
 def ts_files(files: set[str]) -> list[str]:
-    return sorted(f for f in files if detect_language(f) in TS_LANGS and not (set(f.split("/")) & SKIP))[:MAX_FILES]
+    return sorted(f for f in files if detect_language(f) in TS_LANGS and not (set(f.split("/")) & SKIP))
 
 
 class TypeScriptAnalyzer:
@@ -55,8 +56,16 @@ class TypeScriptAnalyzer:
             return g
         if not self.available():
             raise TsAnalyzerUnavailable(f"ts-analyzer CLI not found at {self.cli_path}")
-        payload = json.dumps({"root": str(root), "files": paths})
-        res = self.runner.run([self.node_bin, str(self.cli_path)], cwd=str(root), input=payload, timeout=self.timeout)
+        notes = [f"analyzed the first {MAX_FILES} of {len(paths)} TS/JS files (size cap)"] if len(paths) > MAX_FILES else []
+        paths = paths[:MAX_FILES]
+        res = self._run(root, paths)
+        if res.returncode != 0 and len(paths) > LOW_MEMORY_FILES and "heap out of memory" in res.stderr:
+            # Node's heap grows with the program (~3 GB for 8k files) and its default limit with the machine's memory:
+            # a smaller program beats losing deep TS analysis altogether.
+            notes.append(f"the whole program ({len(paths)} TS/JS files) did not fit Node's memory; analyzed the first "
+                         f"{LOW_MEMORY_FILES}")
+            paths = paths[:LOW_MEMORY_FILES]
+            res = self._run(root, paths)
         if res.returncode != 0:
             raise TsAnalyzerUnavailable(f"ts-analyzer exited {res.returncode}: {res.stderr.strip()[:300]}")
         try:
@@ -64,7 +73,12 @@ class TypeScriptAnalyzer:
         except json.JSONDecodeError as exc:
             raise TsAnalyzerUnavailable(f"ts-analyzer returned invalid JSON: {exc}") from exc
         map_output(out, g, root, side, set(paths))
+        g.notes["typescript"][1:1] = notes
         return g
+
+    def _run(self, root: Path, paths: list[str]):
+        payload = json.dumps({"root": str(root), "files": paths})
+        return self.runner.run([self.node_bin, str(self.cli_path)], cwd=str(root), input=payload, timeout=self.timeout)
 
 
 def _lines(root: Path, path: str) -> list[str]:

@@ -1,6 +1,6 @@
 {
   "kind": "pr_overlay",
-  "schema_version": "2.4.0",
+  "schema_version": "2.5.0",
   "analyzer_version": "2.2.0-fixture",
   "overlay_id": "ov_sample_nosemantic",
   "system_map_id": "sm_sample_nosemantic",

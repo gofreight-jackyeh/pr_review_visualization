@@ -10,7 +10,7 @@ from .changes import ChangedFile, Coverage
 from .finding import Finding
 from .graph import CodeRef, Evidence
 
-SCHEMA_VERSION = "2.4.0"
+SCHEMA_VERSION = "2.5.0"
 
 DISCLAIMER = (
     "Structure comes from static analysis (Python AST / TypeScript compiler) of the repository at one commit; "
@@ -39,6 +39,19 @@ class Repo:
 
 
 @dataclass
+class TextBasis:
+    """Incremental-reuse bookkeeping of one capability (static, schema 2.5.0): the fingerprint of the business-facing
+    surface Claude is shown at this map's commit, and where its Claude texts come from (when / at which commit they were
+    written, how many later base commits reused them, how many lines of its code files changed since)."""
+
+    surface: str
+    written_at: str | None = None
+    written_commit: str | None = None
+    base_changes: int = 0
+    changed_lines: int = 0
+
+
+@dataclass
 class Capability:
     id: str
     technical_name: str
@@ -53,6 +66,7 @@ class Capability:
     component_count: int | None = None
     business_name: Text | None = None
     description: Text | None = None
+    text_basis: TextBasis | None = None
 
 
 @dataclass

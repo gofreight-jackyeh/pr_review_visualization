@@ -184,7 +184,7 @@ export function largeFixture(): { map: SystemMap; overlay: PrOverlay } {
   const headInterface = mkIf("shipment-webhook", "POST /api/shipments/webhook", "出貨狀態回呼", "http_api", "outer", "shipment", "app/shipment/urls.py", 40, "head")
 
   const map: SystemMap = {
-    kind: "system_map", schema_version: "2.4.0", analyzer_version: "2.2.0-fixture", system_map_id: "sm_large", generated_at: "2026-11-11T09:00:00Z",
+    kind: "system_map", schema_version: "2.5.0", analyzer_version: "2.2.0-fixture", system_map_id: "sm_large", generated_at: "2026-11-11T09:00:00Z",
     repo: { owner: "acme", name: "bigapp" }, commit_sha: MAP_SHA,
     system: { technical_name: "bigapp", summary: T("電商營運系統：從購物車、結帳、出貨到開立發票與對帳。", [evi("ev:system", "README", "README.md", 1, "base", "doc")]) },
     coverage: [{ language: "python", level: "deep", file_count: 5400 }], domains, capabilities: caps, entities, entry_points: entryPoints, components: [], relations, flows,
@@ -241,7 +241,7 @@ export function largeFixture(): { map: SystemMap; overlay: PrOverlay } {
     ifc("ac:if-issue", "middle", "if:invoice-issue", "finance.invoice", "modified", "compatible", "開立發票介面新增選填參數", "issue_invoice() 新增選填參數 auto=False。", "app/finance/invoice/services.py", 44, dInv),
   )
   const overlay: PrOverlay = {
-    kind: "pr_overlay", schema_version: "2.4.0", analyzer_version: "2.2.0-fixture", overlay_id: "ov_large", system_map_id: "sm_large", generated_at: "2026-11-11T09:05:00Z",
+    kind: "pr_overlay", schema_version: "2.5.0", analyzer_version: "2.2.0-fixture", overlay_id: "ov_large", system_map_id: "sm_large", generated_at: "2026-11-11T09:05:00Z",
     pr: { source: "github", url: "https://github.com/acme/bigapp/pull/4321", number: 4321, title: "出貨完成時自動開立發票", body: "出貨完成時直接開立發票並寫總帳。", author: "dev",
       repo: { owner: "acme", name: "bigapp" }, base_ref: "main", head_ref: "feat/auto-invoice", base_sha: MAP_SHA, head_sha: HEAD_SHA, merge_base_sha: MAP_SHA },
     coverage: map.coverage,

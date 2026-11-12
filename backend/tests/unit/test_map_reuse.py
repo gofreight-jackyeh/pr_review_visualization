@@ -71,3 +71,116 @@ def test_fingerprint_follows_blob_shas_of_the_capability_files_only():
     assert capability_fingerprints(doc, {**blobs, "a/models.py": "9"}, lang)["cap:b"] == base["cap:b"]
     assert capability_fingerprints(doc, {**blobs, "a/models.py": "9"}, lang)["cap:a"] != base["cap:a"]
     assert capability_fingerprints(doc, {**blobs, "README.md": "9"}, lang) == base  # root docs belong to no capability
+
+
+# ---------------------------------------------------------------- 2.6.0: surface-based reuse, evidence remap, staleness
+
+from pr_explorer.domain.model.changes import ChangedFile, Hunk  # noqa: E402
+from pr_explorer.domain.model.document import Entity, EntryPoint, TextBasis  # noqa: E402
+from pr_explorer.domain.services.map_reuse import (  # noqa: E402
+    BaseChange, ReuseLimits, capability_surfaces, shift_range,
+)
+
+ENT = "ev:ast:base:a/models.py:{}:aaaa1111"  # line-based evidence of the entity a/models.py::Thing
+EP = "ev:framework_rule:base:a/views.py:{}:bbbb2222"
+
+
+def surface_map(ent_line: int = 10, ep_line: int = 5, extra_ep: bool = False) -> SystemMap:
+    smap = new_map(["a", "b"])
+    smap.evidence += [Evidence(ENT.format(ent_line), "ast", "class Thing", [CodeRef("base", "a/models.py", ent_line, ent_line + 4)], P),
+                      Evidence(EP.format(ep_line), "framework_rule", "view", [CodeRef("base", "a/views.py", ep_line)], P)]
+    smap.entities = [Entity("entity:a.Thing", "Thing", "cap:a", [], [ENT.format(ent_line)])]
+    smap.entry_points = [EntryPoint("ep:a.view", "view", "cap:a", "route", [], [EP.format(ep_line)])]
+    if extra_ep:
+        smap.entry_points.append(EntryPoint("ep:a.new", "new_view", "cap:a", "route", [], [EP.format(ep_line)]))
+    return smap
+
+
+def surface_donor(surfaces: dict, written_at: str = "2026-11-10T00:00:00Z", base_changes: int = 0, changed: int = 0) -> dict:
+    d = donor(["a", "b"])
+    t = lambda text, ref: {"text": text, "source": "semantic", "evidence_refs": [ref]}  # noqa: E731
+    d.update(commit_sha="c1", generated_at="2026-11-10T00:00:00Z",
+             evidence=[{"id": ENT.format(10), "refs": [{"side": "base", "path": "a/models.py", "start_line": 10, "end_line": 14}]},
+                       {"id": EP.format(5), "refs": [{"side": "base", "path": "a/views.py", "start_line": 5}]}],
+             entities=[{"id": "entity:a.Thing", "capability_id": "cap:a", "business_name": t("A thing", ENT.format(10))}],
+             entry_points=[{"id": "ep:a.view", "capability_id": "cap:a", "business_name": t("Look at things", EP.format(5))}])
+    for c in d["capabilities"]:
+        c["text_basis"] = {"surface": surfaces[c["id"]], "written_at": written_at, "written_commit": "c0",
+                           "base_changes": base_changes, "changed_lines": changed}
+    return d
+
+
+def change(*files: ChangedFile) -> BaseChange:
+    return BaseChange.from_files(list(files))
+
+
+def modified(path: str, *hunks: tuple[int, int, int, int]) -> ChangedFile:
+    return ChangedFile(f"file:{path}", path, "modified", "python", sum(h[3] for h in hunks), sum(h[1] for h in hunks),
+                       [Hunk(*h) for h in hunks])
+
+
+def test_shift_range_moves_untouched_ranges_and_rejects_touched_ones():
+    hunks = [(2, 0, 3, 2), (20, 1, 22, 3)]  # 2 lines inserted after line 2; line 20 replaced by 3 lines
+    assert shift_range(hunks, 1, 2) == 1  # before every hunk
+    assert shift_range(hunks, 5, 9) == 7  # after the insertion
+    assert shift_range(hunks, 25, 30) == 29  # after both: +2, then +2
+    assert shift_range(hunks, 18, 21) is None  # contains the replaced line
+    assert shift_range([(5, 0, 6, 1)], 3, 8) is None  # an insertion inside the range
+    assert shift_range([(1, 3, 0, 0)], 10, 12) == 7  # 3 lines deleted above
+
+
+def test_implementation_only_change_reuses_texts_with_remapped_evidence():
+    old = surface_map()
+    donor_doc = surface_donor(capability_surfaces(old, None))
+    smap = surface_map(ent_line=13, ep_line=5)  # 3 lines inserted at the top of models.py; views.py untouched
+    plan = reuse_texts(smap, donor_doc, surfaces=capability_surfaces(smap, None), change=change(modified("a/models.py", (1, 0, 2, 3))),
+                       cap_lines={"cap:a": 100}, cap_changed={"cap:a": 3}, now="2026-11-12T00:00:00Z")
+    assert plan.ask == [] and plan.partial == {} and plan.reused == ["cap:a", "cap:b"]
+    assert smap.entities[0].business_name == Text("A thing", "semantic", [ENT.format(13)])  # remapped 10 → 13
+    assert smap.entry_points[0].business_name.evidence_refs == [EP.format(5)]
+    assert plan.evidence_moved == 1 and plan.evidence_failed == 0
+    basis = smap.capabilities[0].text_basis
+    assert basis == TextBasis(capability_surfaces(smap, None)["cap:a"], "2026-11-10T00:00:00Z", "c0", 1, 3)
+
+
+def test_added_entry_point_changes_the_surface_and_reasks_the_capability():
+    donor_doc = surface_donor(capability_surfaces(surface_map(), None))
+    smap = surface_map(extra_ep=True)
+    plan = reuse_texts(smap, donor_doc, surfaces=capability_surfaces(smap, None), change=BaseChange(same_commit=True))
+    assert plan.ask == ["cap:a"] and plan.why == {"cap:a": "surface"} and plan.reused == ["cap:b"]
+    assert smap.capabilities[0].business_name is None  # Claude rewrites the whole capability
+
+
+def test_modified_cited_lines_reask_only_that_element():
+    donor_doc = surface_donor(capability_surfaces(surface_map(), None))
+    smap = surface_map(ent_line=11)  # one line inserted above the class AND one line inside it changed
+    plan = reuse_texts(smap, donor_doc, surfaces=capability_surfaces(smap, None),
+                       change=change(modified("a/models.py", (1, 0, 2, 1), (12, 1, 13, 1))))
+    assert plan.ask == [] and plan.partial == {"cap:a": ["entity:a.Thing"]}
+    assert smap.entities[0].business_name is None and smap.entry_points[0].business_name.text == "Look at things"
+    assert smap.capabilities[0].business_name.text == "Biz a" and plan.evidence_failed == 1
+
+
+def test_moved_or_deleted_file_reasks_the_element_citing_it():
+    donor_doc = surface_donor(capability_surfaces(surface_map(), None))
+    smap = surface_map(ent_line=11)
+    moved = ChangedFile("file:a/models2.py", "a/models2.py", "renamed", "python", 0, 0, [], old_path="a/models.py")
+    plan = reuse_texts(smap, donor_doc, surfaces=capability_surfaces(smap, None), change=change(moved))
+    assert plan.partial == {"cap:a": ["entity:a.Thing"]}
+
+
+def test_staleness_reasks_whole_capability_past_each_limit():
+    surf = capability_surfaces(surface_map(), None)
+    limits = ReuseLimits(max_changed_share=0.4, max_base_changes=3, max_age_days=14)
+
+    def plan_for(**kw):
+        opts = {"cap_lines": {"cap:a": 100}, "cap_changed": {"cap:a": 0}, "now": "2026-11-12T00:00:00Z"}
+        dkw = {k: kw.pop(k) for k in ("written_at", "base_changes", "changed") if k in kw}
+        opts.update(kw)
+        return reuse_texts(surface_map(), surface_donor(surf, **dkw), surfaces=surf, change=change(), limits=limits, **opts)
+
+    assert plan_for().ask == []
+    assert plan_for(changed=30, cap_changed={"cap:a": 11}).why == {"cap:a": "stale: 41/100 lines changed"}  # cumulative
+    assert plan_for(changed=30, cap_changed={"cap:a": 10}).ask == []  # exactly 40%: kept
+    assert plan_for(base_changes=3).why == {"cap:a": "stale: 4 base changes", "cap:b": "stale: 4 base changes"}
+    assert plan_for(written_at="2026-10-28T00:00:00Z").ask == ["cap:a", "cap:b"]  # 15 days old

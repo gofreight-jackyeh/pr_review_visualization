@@ -13,7 +13,7 @@ from ...domain.model.semantic import SemanticDraft
 
 # Bump on ANY change that alters analysis output (prompts, caps, rules, detection): it is part of every cache key,
 # so forgetting it serves stale results. Claude texts still carry over across versions via map reuse.
-ANALYZER_VERSION = "2.5.0"
+ANALYZER_VERSION = "2.6.0"
 
 
 class SourceError(RuntimeError):
@@ -85,6 +85,7 @@ class SourceProvider(Protocol):
     def current_head_sha(self, descriptor: dict[str, Any]) -> str: ...
     def blobs(self, pr: ResolvedPr, sha: str) -> dict[str, str]: ...  # path -> git blob SHA (from the cache)
     def is_ancestor(self, pr: ResolvedPr, ancestor: str, sha: str) -> bool: ...
+    def diff(self, pr: ResolvedPr, a: str, b: str) -> str: ...  # zero-context unified diff a..b, renames detected
 
 
 class DiffParser(Protocol):

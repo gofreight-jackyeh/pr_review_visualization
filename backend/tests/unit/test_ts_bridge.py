@@ -39,3 +39,30 @@ def test_missing_cli_raises_unavailable(tmp_path):
     assert not an.available() and not an.claims("a.ts")
     with pytest.raises(AnalyzerUnavailable):
         an.analyze(tmp_path, {"a.ts"}, "head")
+
+
+def test_all_ts_files_go_to_one_program_and_a_heap_overflow_retries_with_fewer(tmp_path):
+    """No silent 3,000-file cut: every TS/JS file is sent; only when Node runs out of heap is the old 3,000 retried."""
+    from pr_explorer.infrastructure.analyzers.typescript.ts_bridge import LOW_MEMORY_FILES
+    from pr_explorer.infrastructure.process.runner import RunResult
+
+    cli = tmp_path / "cli.js"
+    cli.write_text("// fake")
+    files = {f"src/m{i:05}.ts" for i in range(LOW_MEMORY_FILES + 500)}
+    ok = lambda a, i: json.dumps({"version": "1", "diagnostics": [], "files": []})
+    runner = RecordingRunner(ok)
+    g = TypeScriptAnalyzer(runner, cli).analyze(tmp_path, files, "base")
+    assert [len(json.loads(c["input"])["files"]) for c in runner.calls] == [len(files)]
+    assert not any("did not fit" in n for n in g.notes["typescript"])
+
+    oom = RunResult(134, "", "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory")
+    runner = RecordingRunner(lambda a, i: oom if len(json.loads(i)["files"]) > LOW_MEMORY_FILES else ok(a, i))
+    g = TypeScriptAnalyzer(runner, cli).analyze(tmp_path, files, "base")
+    sent = [json.loads(c["input"])["files"] for c in runner.calls]
+    assert [len(s) for s in sent] == [len(files), LOW_MEMORY_FILES] and sent[1] == sorted(files)[:LOW_MEMORY_FILES]
+    assert any(f"({len(files)} TS/JS files) did not fit" in n for n in g.notes["typescript"])
+
+    runner = RecordingRunner(lambda a, i: RunResult(1, "", "ts-analyzer: boom"))  # other failures: no retry
+    with pytest.raises(AnalyzerUnavailable):
+        TypeScriptAnalyzer(runner, cli).analyze(tmp_path, files, "base")
+    assert len(runner.calls) == 1

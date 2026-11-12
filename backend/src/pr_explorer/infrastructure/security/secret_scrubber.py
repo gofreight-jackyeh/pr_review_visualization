@@ -69,23 +69,47 @@ _PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
-def scrub(text: str) -> str:
-    if not text:
-        return text
+# Pre-filter: every pattern above can only match text containing one of these literals, under the same case rules
+# (case-sensitive literals stay case-sensitive; the `(?i)` patterns' keywords sit in a `(?i:…)` group, so Unicode
+# case-folding such as "ſ" ~ "s" matches exactly as in the patterns). A string the trigger does not find is left
+# unchanged by every pattern, so `scrub` returns it as is — the same result, without 22 regex passes. Adding a
+# pattern means adding its required literal here (tests/unit/test_secret_scrubber.py checks each pattern's samples).
+_TRIGGER = re.compile(
+    r"-----BEGIN |gh[pousr]_|github_pat_|AKIA|ASIA|ABIA|ACCA|xox[abprs]-|sk-|AIza|[sr]k_live_|glpat-|npm_|hf_|eyJ|://"
+    r"|(?i:bearer|password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential"
+    r"|auth[_-]?key|auth[_-]?token)")
+
+
+def _apply_patterns(text: str) -> str:
     for pat, repl in _PATTERNS:
         text = pat.sub(repl, text)
     return text
 
 
+def scrub(text: str) -> str:
+    if not text or not _TRIGGER.search(text):
+        return text
+    return _apply_patterns(text)
+
+
 def scrub_tree(value: Any, skip_keys: frozenset[str] = frozenset()) -> Any:
-    """Recursively scrub every string in a JSON-like structure."""
-    if isinstance(value, str):
-        return scrub(value)
-    if isinstance(value, list):
-        return [scrub_tree(v, skip_keys) for v in value]
-    if isinstance(value, dict):
-        return {k: (v if k in skip_keys else scrub_tree(v, skip_keys)) for k, v in value.items()}
-    return value
+    """Recursively scrub every string in a JSON-like structure. `scrub` is pure, so each distinct string is scrubbed
+    once (a system map repeats IDs and paths: ~110k distinct of ~440k strings on a large repository)."""
+    memo: dict[str, str] = {}
+
+    def walk(v: Any) -> Any:
+        if isinstance(v, str):
+            out = memo.get(v)
+            if out is None:
+                out = memo[v] = scrub(v)
+            return out
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: (x if k in skip_keys else walk(x)) for k, x in v.items()}
+        return v
+
+    return walk(value)
 
 
 class SecretScrubber:

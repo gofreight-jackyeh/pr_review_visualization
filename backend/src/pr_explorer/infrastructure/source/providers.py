@@ -181,6 +181,10 @@ class SourceRouter:
     def is_ancestor(self, pr: ResolvedPr, ancestor: str, sha: str) -> bool:
         return self.cache.is_ancestor(pr.repo_key, ancestor, sha)
 
+    def diff(self, pr: ResolvedPr, a: str, b: str) -> str:
+        """Zero-context diff between two cached commits (map reuse remaps evidence line numbers across it)."""
+        return self.cache.git(["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-M", "-U0", a, b], key=pr.repo_key)
+
     def current_head_sha(self, descriptor: dict[str, Any]) -> str:
         return self._for(descriptor.get("kind", "local")).current_head_sha(descriptor)
 

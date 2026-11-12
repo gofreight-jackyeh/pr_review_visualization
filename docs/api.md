@@ -29,10 +29,24 @@ Start (or reuse) an analysis.
 - System map cache key: `(repo, merge_base_sha, analyzer_version, schema_version, semantic_on)`. Reused across PRs.
   On a miss the static map is rebuilt for the merge base, and Claude texts are carried over from the nearest stored
   2.x map of the same repo (any analyzer version; preferably one whose commit is an ancestor of the merge base):
-  a capability keeps its texts when its fingerprint (git blob SHAs of its files + its element/step IDs) is unchanged,
-  and every carried-over text must still cite existing evidence. Only changed or new capabilities go to Claude
-  (bounded parallel calls); the system summary is re-asked when more than 25% of capabilities changed.
-  Concurrent analyses needing the same map share one build (per server process).
+  a capability keeps its texts unless its business-facing surface changed (analyzer 2.6.0 / schema 2.5.0: name/path,
+  entry points, entities and their fields, interfaces, built flows and their step structure, relations — stored per
+  capability as `text_basis.surface`; a change to implementation only keeps the texts; donors stored before 2.5.0 use
+  the earlier rule, git blob SHAs of its files + its element/step IDs). Every carried-over text must still cite
+  existing evidence: line-based evidence IDs whose cited lines only moved are remapped with the zero-context diff
+  between the donor's commit and the merge base; when the cited lines themselves changed, or the file moved or was
+  deleted, only that element (entity, entry point, or flow with its steps) is re-asked, in the same batched calls.
+  Staleness guard (`PipelineConfig`): a capability is re-explained as a whole once more than
+  `reuse_max_changed_share` (0.4) of its code lines changed since its texts were written (summed across base
+  changes, `text_basis.changed_lines`), once they were carried across more than `reuse_max_base_changes` (40) base
+  commits, or once they are older than `reuse_max_age_days` (14). Only those capabilities go to Claude (bounded
+  parallel calls; with several batches, the capabilities the PR's files belong to go first, in a batch of their own);
+  the system summary is re-asked when more than 25% of capabilities are re-explained as a whole.
+  Concurrent analyses needing the same map share one build (per server process). The PR call (b) does not wait for
+  the whole map: it starts once the calls writing what it shows (names of the elements it lists, step labels of its
+  flows, the system summary) returned (`pr_early_start`); each capability call only writes what it was asked about,
+  so those texts are final then. Its prompt is the same as when waiting; if the stored map ends up different (e.g. a
+  validation failure), or a call it needs failed, the PR call waits for / is repeated with the final map as before.
   Schema 2.1.0 adds two Claude steps after the capability texts, run in parallel: the domain assignment (reused when
   the donor's set of business capabilities is identical; otherwise only this step is re-asked) and flow phases
   (reused per flow when its step IDs are unchanged). Stored 2.0.0 maps are valid donors: they simply have no domains
@@ -54,7 +68,9 @@ Start (or reuse) an analysis.
   `head_additions.interfaces`. A repository can declare or exclude outer interfaces in `.pr-explorer.yml`
   (format: [repo-config.md](repo-config.md)). Large capabilities split one level (≤ 12 children, small
   sub-directories merged into `<parent>/*`).
-- Worktrees are removed when an analysis ends (the bare repo cache stays); `serve` prunes leftovers at start.
+- Worktrees stay idle for up to 10 minutes after an analysis ends (at most two per repository; the next analysis
+  resets one to its commit instead of a full checkout), then are removed; the bare repo cache stays; `serve` prunes
+  leftovers at start.
 - To decide cache hits, POST resolves SHAs synchronously (local: `git rev-parse`; GitHub: `gh` + `git fetch`). Resolution failure → 400 `acquire_failed`.
 - CORS allows only `http://localhost:*` / `http://127.0.0.1:*` origins (Vite dev server).
 
@@ -145,7 +161,7 @@ purpose, behavior changes, findings, architecture checks, flows touched with the
 their evidence IDs, capability names; at most 40 000 characters, long lists halved to fit), the selected item, the last
 6 answered questions of this overlay, and the PR diff (code before tests, at most 30 000 characters). For the duration of
 that call the PR's worktrees are materialized again from the git cache (`repos/`) and Claude may Read the head
-checkout; they are removed before the answer is published. A result shared from another machine without the git cache
+checkout; they are released (left idle, see above) before the answer is published. A result shared from another machine without the git cache
 fails with a message to analyze the PR locally first.
 
 The reply must be `{"answer": "<markdown>", "cites": ["file:…", "ev:…", "flow:…", …]}` (retried once when it is not).
