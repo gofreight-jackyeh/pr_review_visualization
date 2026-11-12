@@ -103,6 +103,69 @@ Re-resolves the PR head (GitHub: `gh`; local: `git rev-parse <head>`).
 { "stale": true, "analyzed_head_sha": "…", "current_head_sha": "…" }
 ```
 
+## GET /api/config
+
+What this server allows the calling client to do.
+
+```json
+{ "ask": { "mode": "local | all | off", "allowed": true, "reason": null } }
+```
+
+`mode` is `PR_EXPLORER_ASK` (default `local`). `allowed` is computed for this request: `local` allows only clients whose
+TCP peer address is loopback (127.0.0.0/8, ::1), `all` allows every client, `off` allows nobody. When not allowed,
+`reason` names the setting. The UI hides 「問 AI」 for `off` and shows earlier answers read-only when `allowed` is false.
+
+## Questions (follow-up questions to Claude about one overlay)
+
+### POST /api/overlays/{overlay_id}/questions
+
+```json
+{ "question": "1–2000 characters", "selected_id": "optional id of the item the reviewer has selected" }
+```
+
+Response `202`: `{ "question_id": "q_…", "status": "queued" }`. The answer is written in the background (same executor
+as analyses); poll the list below.
+
+- 403 `forbidden` when the access mode does not allow this client (the message names `PR_EXPLORER_ASK`).
+- 409 `conflict` while another question about the same overlay is queued or running (one Claude call at a time per PR).
+- 404 `not_found` for an unknown overlay; 400 `invalid_input` for an empty / too long question or `selected_id` > 300 chars.
+
+One question = one Claude call (call kind `ask`, system prompt `prompts/ask.md`, tier `standard`, same read-only
+isolation flags as the analysis calls, same output language setting `PR_EXPLORER_LANG`). Inside the untrusted-data fence
+it gets: the question (marked as the one to answer), a compact digest of the stored overlay (PR title/description,
+purpose, behavior changes, findings, architecture checks, flows touched with their changed steps, changed files with
+their evidence IDs, capability names; at most 40 000 characters, long lists halved to fit), the selected item, the last
+6 answered questions of this overlay, and the PR diff (code before tests, at most 30 000 characters). For the duration of
+that call the PR's worktrees are materialized again from the git cache (`repos/`) and Claude may Read the head
+checkout; they are removed before the answer is published. A result shared from another machine without the git cache
+fails with a message to analyze the PR locally first.
+
+The reply must be `{"answer": "<markdown>", "cites": ["file:…", "ev:…", "flow:…", …]}` (retried once when it is not).
+Cites are kept only when they are IDs of that overlay or its system map (elements, steps, findings, architecture
+checks, behavior changes, evidence, changed files, `pr`) or `file:<changed path>:<line>`; the rest are listed in
+`dropped`. An answer with no valid cite is kept with `unsupported: true` (the UI shows 「未附來源，請自行確認」). The
+question and the answer are scrubbed for secrets before they are stored.
+
+### GET /api/overlays/{overlay_id}/questions
+
+Oldest first. 403 when the mode is `off`; readable by every client otherwise.
+
+```json
+[{
+  "question_id": "q_…", "overlay_id": "ov_…", "created_at": "…", "question": "…", "selected_id": "cap:orders",
+  "status": "queued | running | done | failed", "error": null,
+  "answer": {
+    "text": "markdown", "unsupported": false, "dropped": ["ev:invented"],
+    "cites": [{ "id": "file:orders/services.py:20", "kind": "file", "label": "orders/services.py",
+                "refs": [{ "side": "head", "path": "orders/services.py", "start_line": 20 }] }]
+  }
+}]
+```
+
+`kind`: `file | evidence | flow | step | capability | entity | entry_point | component | interface | finding | arch |
+behavior | pr`. `refs` are code locations (a changed file without a line has no `start_line`). Questions still queued or
+running when the server stops are marked failed at the next start.
+
 ## Errors
 
-`{ "error": { "code": "invalid_input | not_found | acquire_failed | internal", "message": "…" } }`
+`{ "error": { "code": "invalid_input | not_found | acquire_failed | forbidden | conflict | internal", "message": "…" } }`

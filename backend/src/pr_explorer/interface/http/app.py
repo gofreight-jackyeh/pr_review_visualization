@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ...application.ports import AnalysisRequest, ContextDoc, LocalSpec
-from ...application.use_cases import AppError
+from ...application.use_cases import AppError, Forbidden
 from ...bootstrap import Container
 
 HOST = "0.0.0.0"  # owner decision 2026-11-11 (overrides spec §11 default); use --host 127.0.0.1 for local-only
@@ -40,6 +40,43 @@ class AnalysisIn(BaseModel):
     local: LocalIn | None = None
     context_docs: list[ContextDocIn] = Field(default_factory=list, max_length=20)
     semantic_mode: Literal["auto", "off", "light", "standard", "deep"] = "auto"
+
+
+class QuestionIn(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    selected_id: str | None = Field(default=None, max_length=300)
+
+
+ASK_MODES = ("local", "all", "off")
+
+
+def ask_mode_from_env() -> str:
+    """PR_EXPLORER_ASK: who may ask Claude follow-up questions — local (default: clients on this machine only), all, off."""
+    mode = (os.environ.get("PR_EXPLORER_ASK") or "local").strip().lower()
+    if mode not in ASK_MODES:
+        raise ValueError(f"PR_EXPLORER_ASK must be one of {', '.join(ASK_MODES)}; got {mode!r}")
+    return mode
+
+
+def is_loopback(host: str | None) -> bool:
+    """The TCP peer is this machine (127.0.0.0/8, ::1, or ::ffff:127.x). Not a header: a remote client cannot fake it."""
+    try:
+        ip = ipaddress.ip_address((host or "").strip("[]"))
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return (mapped or ip).is_loopback
+
+
+def ask_access(mode: str, request: Request) -> tuple[bool, str | None]:
+    """(allowed, reason). Asking spends the operator's Claude identity and reads the PR's code, so by default only
+    someone at this machine may do it."""
+    if mode == "off":
+        return False, "follow-up questions are turned off on this server (PR_EXPLORER_ASK=off)"
+    if mode == "local" and not is_loopback(request.client.host if request.client else None):
+        return False, ("follow-up questions are only allowed from this machine (PR_EXPLORER_ASK=local); "
+                       "start the server with PR_EXPLORER_ASK=all to allow every client")
+    return True, None
 
 
 def _error(status: int, code: str, message: str) -> JSONResponse:
@@ -87,6 +124,7 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
     app.add_middleware(CORSMiddleware, allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
                        allow_methods=["GET", "POST"], allow_headers=["content-type"])
     extra_hosts = allowed_hosts_from_env()
+    ask_mode = ask_mode_from_env()
 
     @app.middleware("http")  # added after CORS, so it runs first
     async def _check_host(request: Request, call_next):
@@ -142,6 +180,26 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
     def freshness(overlay_id: str):
         return c.freshness(overlay_id)
 
+    @app.get("/api/config")
+    def config(request: Request):
+        allowed, reason = ask_access(ask_mode, request)
+        return {"ask": {"mode": ask_mode, "allowed": allowed, "reason": reason}}
+
+    @app.post("/api/overlays/{overlay_id}/questions")
+    def ask(overlay_id: str, body: QuestionIn, request: Request):
+        allowed, reason = ask_access(ask_mode, request)
+        if not allowed:
+            raise Forbidden(reason or "forbidden")
+        started = c.ask.start(overlay_id, body.question, body.selected_id)
+        pool.submit(c.ask.run, started["question_id"])
+        return JSONResponse(started, status_code=202)
+
+    @app.get("/api/overlays/{overlay_id}/questions")
+    def questions(overlay_id: str):
+        if ask_mode == "off":
+            raise Forbidden("follow-up questions are turned off on this server (PR_EXPLORER_ASK=off)")
+        return c.ask.list(overlay_id)
+
     @app.get("/api/{rest:path}")
     def api_not_found(rest: str):
         return _error(404, "not_found", f"no API route /api/{rest}")
@@ -166,5 +224,6 @@ def serve(c: Container, port: int = PORT, host: str = HOST) -> None:
     removed = c.prune_worktrees()  # nothing from an earlier run is in use yet
     if removed:
         print(f"removed {len(removed)} stale worktree(s) under {c.home / 'worktrees'}")
+    c.fail_unfinished_questions("the server stopped before this question was answered; ask again")
 
     uvicorn.run(create_app(c), host=host, port=port, log_level="info")

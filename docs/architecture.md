@@ -30,12 +30,14 @@ pr_review_visualization/
 │   │   │                           # graph_diff, complexity_score,
 │   │   │                           # static_findings（spec §8 可驗證技術 Findings）,
 │   │   │                           # convention_inference（Inferred Pattern）,
-│   │   │                           # hierarchy, semantic_gate, walkthrough_builder
+│   │   │                           # hierarchy, semantic_gate, walkthrough_builder,
+│   │   │                           # ask（追問的 digest 與引用檢查：只留這份分析裡存在的 ID）
 │   │   ├── application/
 │   │   │   ├── ports/              # SourceProvider, LanguageAnalyzer, SemanticAnalyzer,
 │   │   │   │                       # KnowledgeSource, ArtifactStore, AnalysisRepository
 │   │   │   ├── pipeline/           # spec §5 六層，一層一個 stage
-│   │   │   └── use_cases/          # analyze_pr, get_artifact, check_pr_freshness
+│   │   │   └── use_cases/          # analyze_pr, get_artifact, check_pr_freshness,
+│   │   │                           # ask_question（追問：暫時重建 worktree、一次 Claude 呼叫、用完即刪）
 │   │   ├── infrastructure/
 │   │   │   ├── source/             # git_worktree, gh_cli
 │   │   │   ├── analyzers/
@@ -77,7 +79,8 @@ pr_review_visualization/
 │   │   ├── system-map/             # 專案背景：React Flow + ELK.js、領域分層、節點上限、文字清單
 │   │   ├── flows/                  # 流程主軸（3–7 段、每段 ≤ 7 步）、選用的動畫與流程地圖
 │   │   ├── architecture/           # 介面圈別與依賴規則檢查
-│   │   └── focus/                  # 每頁一個焦點問題
+│   │   ├── focus/                  # 每頁一個焦點問題
+│   │   └── ask/                    # 問 AI 面板（與按需說明面板同一層、同位置；歷史、等待、引用來源、權限）
 │   ├── widgets/workspace/          # 主導覽 + 內容區 + 按需說明面板
 │   └── shared/                     # ui, api client, lib
 │

@@ -32,7 +32,7 @@ def call_kind(args: list[str]) -> str:
     from pr_explorer.infrastructure.semantic.prompt_builder import system_prompt
 
     sp = args[args.index("--system-prompt") + 1]
-    return next(k for k in ("system_map", "domains", "phases", "pr") if sp == system_prompt(k))
+    return next(k for k in ("system_map", "domains", "phases", "pr", "ask") if sp == system_prompt(k))
 
 
 def ordered(calls: list[str]) -> list[str]:

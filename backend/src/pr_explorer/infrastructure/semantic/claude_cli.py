@@ -1,6 +1,7 @@
 """Claude Code CLI adapter (`claude -p --output-format json`), read-only tools only. Call kinds:
 system_map (business names/descriptions for one capability batch), domains (assign business capabilities to domains),
-phases (cut built flows into business phases) and pr (purpose, behavior changes, ...).
+phases (cut built flows into business phases), pr (purpose, behavior changes, ...) and ask (one answer to a reviewer's
+follow-up question).
 
 Failure never breaks a document: unavailable CLI → status=unavailable; an unparseable or wrongly shaped reply is
 retried once (owner decision, spec §5 Layer 7), then status=failed. A non-zero exit is not retried.
@@ -32,8 +33,11 @@ REPLY_KEYS = {
     "phases": ("flows",),
     "pr": ("purpose", "design_rationale", "behavior_changes", "findings", "step_labels", "head_additions", "walkthrough",
            "questions", "flow_phases", "architecture_hypotheses", "interface_notes"),
+    "ask": ("answer", "cites"),
 }
-OBJECT_KEYS = {"system_summary", "purpose", "design_rationale", "walkthrough"}  # every other reply key is a list
+OBJECT_KEYS = {"system_summary", "purpose", "design_rationale", "walkthrough"}
+STRING_KEYS = {"answer"}  # every other reply key is a list
+REQUIRED_KEYS = {"ask": ("answer",)}  # a reply without them is malformed (retried once)
 MAX_ATTEMPTS = 2  # one retry on a malformed reply
 # Set to 1 it makes the CLI auto-load CLAUDE.md from --add-dir directories (i.e. from the PR's own tree).
 CLAUDE_MD_FROM_ADDED_DIRS = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"
@@ -173,8 +177,12 @@ class ClaudeCliSemanticAnalyzer:
 
 
 def malformed(obj: dict, kind: str) -> str:
-    """'' when every known reply key has the container type the prompt asks for; else the problem."""
+    """'' when every known reply key has the type the prompt asks for (and the required ones are there); else the problem."""
+    for k in REQUIRED_KEYS.get(kind, ()):
+        if obj.get(k) in (None, ""):
+            return f"malformed reply: '{k}' is missing"
     for k in REPLY_KEYS.get(kind, ()):
-        if k in obj and obj[k] is not None and not isinstance(obj[k], dict if k in OBJECT_KEYS else list):
+        want = dict if k in OBJECT_KEYS else str if k in STRING_KEYS else list
+        if k in obj and obj[k] is not None and not isinstance(obj[k], want):
             return f"malformed reply: '{k}' is a {type(obj[k]).__name__}"
     return ""

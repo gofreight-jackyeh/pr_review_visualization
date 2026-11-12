@@ -5,6 +5,8 @@ import { Summary } from "@/features/summary/Summary"
 import { ChangesView } from "@/features/changes/ChangesView"
 import { ReviewView } from "@/features/review/ReviewView"
 import { StateNotices } from "@/features/analysis-state/StateNotices"
+import { AskButton, AskPanel } from "@/features/ask/AskPanel"
+import { useAskAccess } from "@/features/ask/ask"
 
 /** The single main navigation (plan「主導覽與閱讀順序」). Each entry is a history entry (browser back / forward). */
 export function MainNav() {
@@ -30,13 +32,17 @@ function ContextView() {
   )
 }
 
-/** Main content plus the on-demand detail panel (beside it on wide screens, an overlay on narrower ones; see CSS). */
+/** Main content plus the on-demand detail panel or the 問 AI panel (one at a time; beside the content on wide screens,
+ * an overlay on narrower ones; see CSS). */
 export function Workspace({ onReanalyze }: { onReanalyze?: () => void }) {
   const ex = useExplorer()
+  const ask = useAskAccess(ex.model, ex.fixture)
+  const askOpen = ex.ask && !ex.panel && ask.state !== "hidden" && ask.state !== "loading"
   return (
     <div className="workspace">
-      <MainNav />
-      <div className={"split" + (ex.panel ? " with-panel" : "")}>
+      {/* 問 AI opens a panel, it is not a navigation entry: beside the nav landmark, reachable from every tab */}
+      <div className="nav-row"><MainNav /><AskButton access={ask} /></div>
+      <div className={"split" + (ex.panel || askOpen ? " with-panel" : "")}>
         <main className={"content" + (ex.nav === "context" ? " fill" : "")} ref={ex.scrollRef} data-testid="content">
           <StateNotices onReanalyze={onReanalyze} />
           {ex.nav === "summary" && <Summary />}
@@ -45,6 +51,7 @@ export function Workspace({ onReanalyze }: { onReanalyze?: () => void }) {
           {ex.nav === "context" && <ContextView />}
         </main>
         <DetailPanel />
+        {askOpen && <AskPanel access={ask} />}
       </div>
     </div>
   )

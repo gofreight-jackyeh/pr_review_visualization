@@ -1,4 +1,5 @@
-"""SQLite: analyses, stages, system-map index (cache key → map) and overlay index (cache key → overlay).
+"""SQLite: analyses, stages, system-map index (cache key → map), overlay index (cache key → overlay) and the follow-up
+questions asked about an overlay.
 
 Schema v2 lives in its own DB file (pr_explorer_v2.db): v1 artifacts are invalid under schema 2 and are simply
 re-analyzed; nothing is migrated."""
@@ -34,7 +35,12 @@ CREATE TABLE IF NOT EXISTS overlays (
   repo_key TEXT NOT NULL, descriptor_json TEXT NOT NULL, base_sha TEXT NOT NULL, head_sha TEXT NOT NULL,
   merge_base_sha TEXT NOT NULL, system_map_id TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS questions (
+  id TEXT PRIMARY KEY, overlay_id TEXT NOT NULL, created_at TEXT NOT NULL, question TEXT NOT NULL, selected_id TEXT,
+  status TEXT NOT NULL, answer_json TEXT, error TEXT
+);
 CREATE INDEX IF NOT EXISTS analyses_created ON analyses(created_at);
+CREATE INDEX IF NOT EXISTS questions_overlay ON questions(overlay_id, created_at);
 """
 
 
@@ -148,3 +154,32 @@ class SqliteAnalysisRepository:
         r = self._abs(rows[0])
         r["descriptor"] = json.loads(r.pop("descriptor_json"))
         return r
+
+    # ---- follow-up questions (QuestionRepository)
+    @staticmethod
+    def _question(row) -> dict:
+        r = dict(row)
+        r["answer"] = json.loads(r.pop("answer_json")) if r.get("answer_json") else None
+        return r
+
+    def create_question(self, question_id, overlay_id, question, selected_id) -> dict:
+        self._x("INSERT INTO questions VALUES (?,?,?,?,?,'queued',NULL,NULL)",
+                (question_id, overlay_id, _now(), question, selected_id))
+        return self.get_question(question_id) or {}
+
+    def update_question(self, question_id, status, answer=None, error=None) -> None:
+        self._x("UPDATE questions SET status=?, answer_json=COALESCE(?, answer_json), error=? WHERE id=?",
+                (status, json.dumps(answer, ensure_ascii=False) if answer is not None else None, error, question_id))
+
+    def get_question(self, question_id) -> dict | None:
+        rows = self._x("SELECT * FROM questions WHERE id=?", (question_id,))
+        return self._question(rows[0]) if rows else None
+
+    def list_questions(self, overlay_id) -> list[dict]:
+        return [self._question(r) for r in self._x(
+            "SELECT * FROM questions WHERE overlay_id=? ORDER BY created_at, rowid", (overlay_id,))]
+
+    def fail_unfinished_questions(self, error) -> int:
+        with self._lock:
+            return self._conn.execute("UPDATE questions SET status='failed', error=? WHERE status IN ('queued','running')",
+                                      (error,)).rowcount

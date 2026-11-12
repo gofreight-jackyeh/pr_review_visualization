@@ -11,7 +11,7 @@ from ...application.ports import SemanticRequest
 
 PROMPTS = Path(__file__).with_name("prompts")
 SYSTEM_PROMPTS = {"system_map": PROMPTS / "system_map.md", "domains": PROMPTS / "domains.md", "phases": PROMPTS / "phases.md",
-                  "pr": PROMPTS / "pr.md"}
+                  "pr": PROMPTS / "pr.md", "ask": PROMPTS / "ask.md"}
 LANGUAGES = {"zh-Hant": "Traditional Chinese (繁體中文, as used in Taiwan)", "en": "English"}
 TASKS = {
     "system_map": "Explain this part of the system in business language: what it does for the business, "
@@ -19,6 +19,7 @@ TASKS = {
     "domains": "Group the business capabilities into business domains a newcomer can navigate.",
     "phases": "Cut each business flow into its business phases.",
     "pr": "Explain this pull request in business language: why it is needed and how business behavior changes.",
+    "ask": "Answer the reviewer's follow-up question about this pull request (question.text in the data).",
 }
 FENCE_OPEN, FENCE_CLOSE = "<untrusted_data>", "</untrusted_data>"
 

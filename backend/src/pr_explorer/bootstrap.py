@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from .application.pipeline import Pipeline, PipelineConfig, PipelineDeps
-from .application.use_cases import AnalysisStatus, AnalyzePr, CheckFreshness, GetOverlay, GetSystemMap
+from .application.use_cases import AnalysisStatus, AnalyzePr, AskQuestion, CheckFreshness, GetOverlay, GetSystemMap
 from .infrastructure.analyzers.generic.diff_parser import parse_unified_diff
 from .infrastructure.analyzers.generic.generic_analyzer import GenericAnalyzer
 from .infrastructure.analyzers.generic.languages import detect_language
@@ -19,6 +19,7 @@ from .infrastructure.knowledge.mcp_config import allowed_mcp_tools
 from .infrastructure.persistence.document_fs import FsDocumentStore
 from .infrastructure.persistence.sqlite.analysis_repository import DB_NAME, SqliteAnalysisRepository
 from .infrastructure.process.runner import CommandRunner, SubprocessRunner
+from .infrastructure.security.secret_scrubber import scrub
 from .infrastructure.semantic.claude_cli import ClaudeCliSemanticAnalyzer
 from .infrastructure.source.git_cache import GitCache
 from .infrastructure.source.providers import GitHubSourceProvider, LocalSourceProvider, SourceRouter
@@ -43,8 +44,10 @@ class Container:
     get_system_map: GetSystemMap
     get_overlay: GetOverlay
     freshness: CheckFreshness
+    ask: AskQuestion
     frontend_dist: Path
     prune_worktrees: Callable[[], list[Path]]  # server start: drop worktrees left by earlier runs (regenerable)
+    fail_unfinished_questions: Callable[[str], int]  # server start: questions an earlier run never answered
 
 
 LANGUAGES = ("zh-Hant", "en", "auto")
@@ -75,20 +78,22 @@ def build_container(
     source = SourceRouter(cache, LocalSourceProvider(cache, runner), GitHubSourceProvider(cache, gh_runner or runner))
     repo = SqliteAnalysisRepository(home / DB_NAME)
     store = FsDocumentStore(home)
+    semantic = semantic or ClaudeCliSemanticAnalyzer(
+        claude_runner or runner, os.environ.get("PR_EXPLORER_CLAUDE_BIN", "claude"), allowed_mcp_tools(),
+        mcp_config=os.environ.get("PR_EXPLORER_MCP_CONFIG") or None, log_path=home / "logs" / "semantic-calls.jsonl")
+    config = config or PipelineConfig(output_language=output_language_from_env())
     ts_path = ts_cli or Path(os.environ.get("PR_EXPLORER_TS_CLI") or PROJECT_ROOT / "tools/ts-analyzer/dist/cli.js")
     deps = PipelineDeps(
         source=source,
         diff_parser=_DiffParser(),
         generic=GenericAnalyzer(),
         analyzers=[PythonAnalyzer(), TypeScriptAnalyzer(runner, ts_path)],
-        semantic=semantic or ClaudeCliSemanticAnalyzer(
-            claude_runner or runner, os.environ.get("PR_EXPLORER_CLAUDE_BIN", "claude"), allowed_mcp_tools(),
-            mcp_config=os.environ.get("PR_EXPLORER_MCP_CONFIG") or None, log_path=home / "logs" / "semantic-calls.jsonl"),
+        semantic=semantic,
         knowledge=LocalDocsKnowledge(),
         store=store,
         repo=repo,
         language_of=detect_language,
-        config=config or PipelineConfig(output_language=output_language_from_env()),
+        config=config,
     )
     return Container(
         home=home,
@@ -97,6 +102,8 @@ def build_container(
         get_system_map=GetSystemMap(store),
         get_overlay=GetOverlay(store),
         freshness=CheckFreshness(repo, source),
+        ask=AskQuestion(repo, repo, store, source, semantic, config.language, scrub),
         frontend_dist=Path(os.environ.get("PR_EXPLORER_FRONTEND_DIST") or PROJECT_ROOT / "frontend/dist"),
         prune_worktrees=cache.prune_stale_worktrees,
+        fail_unfinished_questions=repo.fail_unfinished_questions,
     )

@@ -15,7 +15,7 @@ Paste a GitHub PR URL, or open "Local repo mode" and give a repo path plus base/
 
 Try it without GitHub: `make demo`, then use local repo mode with the printed path, base `main`, head `feature/discount`.
 
-Generated explanations are in Traditional Chinese by default, matching the UI; `PR_EXPLORER_LANG=en` writes English and `PR_EXPLORER_LANG=auto` follows the repository's own language (Chinese when its docs / PR are Chinese). `make stop` stops the server. Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port (stop it with the same `PORT=… make stop`).
+Generated explanations are in Traditional Chinese by default, matching the UI; `PR_EXPLORER_LANG=en` writes English and `PR_EXPLORER_LANG=auto` follows the repository's own language (Chinese when its docs / PR are Chinese). Follow-up questions: the 「問 AI」 button (every tab) asks Claude about the PR you are reading; answers cite the analysis' evidence and are labelled as AI interpretation. `PR_EXPLORER_ASK=local` (default) lets only browsers on this machine ask, `all` lets every client ask, `off` hides the feature. `make stop` stops the server. Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port (stop it with the same `PORT=… make stop`).
 
 ## What it will and won't claim
 
@@ -32,11 +32,12 @@ Generated explanations are in Traditional Chinese by default, matching the UI; `
 - Result documents are scrubbed for common secret formats (tokens, keys, passwords) before they are written. This is pattern-based and best-effort, not a guarantee.
 - `logs/semantic-calls.jsonl` records one line per Claude call: time, kind, tier, attempt, prompt size, duration, exit code, reply size. It never contains prompt text.
 - With Claude enabled, the PR title and description, diff and code excerpts, repo docs and any context text you paste are sent to Claude through the local `claude` CLI (and so to the model service your CLI is signed in to). The initial prompt is scrubbed for secrets. Claude may also read any file inside the analyzed worktree during the call; those reads are **not** scrubbed.
+- A follow-up question (「問 AI」) sends the question, a digest of the stored analysis, the PR diff and up to 6 earlier questions and answers of that PR to Claude the same way; the PR's head is checked out again for that one call and removed afterwards. Questions and answers are stored (scrubbed) in the SQLite index.
 - To keep everything on this machine, turn Claude off: choose "關閉（只做靜態分析）" under "Claude 業務說明" in the UI, or pass `--semantic off` to `pr-explorer analyze`.
 
 ## Network exposure
 
-By default the server listens on `0.0.0.0:8766` with **no authentication**. Anyone who can reach the port can read all analysis results and can make this machine analyze any local repository path, or any private GitHub repository the local `gh` login can read, using the operator's GitHub and Claude identities. On untrusted networks run `HOST=127.0.0.1 make start`.
+By default the server listens on `0.0.0.0:8766` with **no authentication**. Anyone who can reach the port can read all analysis results and can make this machine analyze any local repository path, or any private GitHub repository the local `gh` login can read, using the operator's GitHub and Claude identities. On untrusted networks run `HOST=127.0.0.1 make start`. Follow-up questions to Claude are allowed only from this machine unless `PR_EXPLORER_ASK=all`.
 
 Requests whose `Host` header is not `localhost`, an IP address or this machine's hostname are rejected with 400 (DNS-rebinding protection). Allow extra names with `PR_EXPLORER_ALLOWED_HOSTS=name1,name2`; `*` disables the check.
 
@@ -70,7 +71,8 @@ sqlite3 "$H/pr_explorer_v2.db" "ATTACH '$IN/pr_explorer_v2.db' AS s;
   INSERT OR IGNORE INTO system_maps SELECT * FROM s.system_maps;
   INSERT OR IGNORE INTO overlays SELECT * FROM s.overlays;
   INSERT OR IGNORE INTO analyses SELECT * FROM s.analyses;
-  INSERT OR IGNORE INTO stages SELECT * FROM s.stages;"
+  INSERT OR IGNORE INTO stages SELECT * FROM s.stages;
+  INSERT OR IGNORE INTO questions SELECT * FROM s.questions;"
 ```
 
-Requires the `sqlite3` command-line tool (preinstalled on macOS). The shared files contain the analyzed repository's business explanations, file and symbol names, PR titles and descriptions, and the sender's local repository paths. Share them only with people who may read that repository. Secret scrubbing is best-effort.
+Requires the `sqlite3` command-line tool (preinstalled on macOS). The `questions` line needs both sides on a version with follow-up questions (drop it if the sender's database has no `questions` table). The shared files contain the analyzed repository's business explanations, file and symbol names, PR titles and descriptions, follow-up questions and Claude's answers, and the sender's local repository paths. Share them only with people who may read that repository. Secret scrubbing is best-effort.

@@ -67,7 +67,7 @@ v1 假設使用者看得懂程式碼、只是不熟這次修改，因此以「�
 - PR Approve / Request Changes
 - 自動執行 PR 程式碼或測試
 - Runtime Debugger
-- 即時 AI 問答與動態圖表生成
+- 動態圖表生成（「問 AI」追問已於 2026-11-12 納入範圍：針對單一 PR 分析結果、唯讀、回答須引用證據並標示為 AI 解讀，預設只限本機使用）
 - 自由編輯 Architecture Graph
 - Claude 生成可執行的 UI / Animation Code
 

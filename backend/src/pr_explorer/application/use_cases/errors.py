@@ -23,3 +23,13 @@ class NotFound(AppError):
 class AcquireFailed(AppError):
     code = "acquire_failed"
     http_status = 400
+
+
+class Forbidden(AppError):
+    code = "forbidden"
+    http_status = 403
+
+
+class Conflict(AppError):
+    code = "conflict"
+    http_status = 409

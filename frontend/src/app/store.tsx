@@ -73,6 +73,10 @@ export interface Explorer {
   panel: boolean
   openDetail: (s: Selection, trigger?: HTMLElement | null, card?: string) => void
   closeDetail: () => void
+  /** the 「問 AI」 panel: shares the detail panel's place (one layer: opening one closes the other), focus and reading position */
+  ask: boolean
+  openAsk: (trigger?: HTMLElement | null) => void
+  closeAsk: () => void
   expanded: Set<string>; toggle: (id: string, open?: boolean) => void
   phase: Phase; setPhase: (p: Phase) => void
   selection: Selection | null; select: (s: Selection | null) => void
@@ -133,6 +137,7 @@ export function ExplorerProvider({ model, fixture, children }: { model: Model; f
   const [card, setCard] = useState<string | null>(initial?.card ?? null)
   const [cardView, setCardView] = useState<CardView>(initial?.cardView ?? null)
   const [panel, setPanel] = useState(initial?.panel ?? false)
+  const [ask, setAsk] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(initial?.expanded ?? []))
   const [phase, setPhaseRaw] = useState<Phase>(initial?.phase ?? "system")
   const [selection, select] = useState<Selection | null>(initial?.selection ?? null)
@@ -221,6 +226,7 @@ export function ExplorerProvider({ model, fixture, children }: { model: Model; f
   snapRef.current = snapshot
   const apply = useCallback((s: ViewSnap) => {
     setNav(s.nav); setCard(s.card); setCardView(s.cardView); setExpanded(new Set(s.expanded)); select(s.selection); setPanel(s.panel && !!s.selection); setGuideStep(s.guideStep)
+    if (s.panel && s.selection) setAsk(false)
     setPhaseRaw(s.phase); setLevelRaw(s.level); setSpotlight(null)
     setFlowIdRaw((cur) => { if (cur !== s.flowId) resetPlayer(); return s.flowId })
     pendingSeg.current = s.seg
@@ -262,10 +268,22 @@ export function ExplorerProvider({ model, fixture, children }: { model: Model; f
   const trigger = useRef<HTMLElement | null>(null)
   const readingPos = useRef(0)
   const openDetail = useCallback((s: Selection, from?: HTMLElement | null, fromCard?: string) => {
-    if (!panel) { trigger.current = from ?? (document.activeElement as HTMLElement | null); readingPos.current = scrollRef.current?.scrollTop ?? 0 }
-    select(s); setPanel(true)
+    // from inside the ask panel the reference replaces it; closing then returns to what opened the ask panel
+    if (!panel && !ask) { trigger.current = from ?? (document.activeElement as HTMLElement | null); readingPos.current = scrollRef.current?.scrollTop ?? 0 }
+    select(s); setPanel(true); setAsk(false)
     if (fromCard !== undefined) setCard(fromCard)
-  }, [panel])
+  }, [panel, ask])
+  const openAsk = useCallback((from?: HTMLElement | null) => {
+    // opened from outside the panels (the nav button): that button gets focus back, even if it replaced the detail panel
+    if (!ask) trigger.current = from ?? (document.activeElement as HTMLElement | null)
+    if (!panel && !ask) readingPos.current = scrollRef.current?.scrollTop ?? 0
+    setPanel(false); setAsk(true)
+  }, [panel, ask])
+  const closeAsk = useCallback(() => {
+    setAsk(false)
+    pendingScroll.current = { top: readingPos.current }
+    pendingFocus.current = trigger.current
+  }, [])
   const closeDetail = useCallback(() => {
     setPanel(false)
     pendingScroll.current = { top: readingPos.current }
@@ -340,7 +358,7 @@ export function ExplorerProvider({ model, fixture, children }: { model: Model; f
   }, [model, go, flowId])
 
   const value: Explorer = {
-    model, fixture, nav, go, scrollRef, card, setCard, cardView, panel, openDetail, closeDetail, expanded, toggle, phase, setPhase, selection, select, selectElement,
+    model, fixture, nav, go, scrollRef, card, setCard, cardView, panel, openDetail, closeDetail, ask, openAsk, closeAsk, expanded, toggle, phase, setPhase, selection, select, selectElement,
     level, setLevel, showShared, setShowShared, showEngineering, setShowEngineering, pages, nextPage, scene,
     layers, setLayers, emphasis, setEmphasis, query, setQuery, spotlight, setSpotlight, showArch, focusCapability,
     flowId, setFlowId, flowView, setFlowView, prFocus, setPrFocus, showInfraSteps, setShowInfraSteps: setShowInfra, expandedSeg, setExpandedSeg, segPage, setSegPage,
