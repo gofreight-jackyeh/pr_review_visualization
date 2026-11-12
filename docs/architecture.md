@@ -42,15 +42,15 @@ pr_review_visualization/
 │   │   │   ├── source/             # git_worktree, gh_cli
 │   │   │   ├── analyzers/
 │   │   │   │   ├── generic/        # diff、imports — 所有語言的保底分析
-│   │   │   │   ├── python/         # ast_analyzer + django_rules/（urls, views, orm）
-│   │   │   │   └── typescript/     # ts_bridge → 呼叫 tools/ts-analyzer（M3）
+│   │   │   │   ├── python/         # ast_analyzer + django_rules/（urls, views, orm）；逐檔摘要記憶體 + 磁碟兩層快取
+│   │   │   │   └── typescript/     # ts_bridge → 呼叫 tools/ts-analyzer（M3）；ts_incremental：哪些逐檔結果仍可沿用
 │   │   │   ├── semantic/           # claude_cli, prompts/, tool_policy（唯讀權限）,
 │   │   │   │                       # prompt_builder（repo 內容一律包成 untrusted data，
 │   │   │   │                       # 不可成為系統指令，spec §11）
 │   │   │   ├── knowledge/          # MCP：Jira, Slack；local_docs（repo 內文件 → Documented
 │   │   │   │                       # Convention；使用者補充的文件，spec §3）
 │   │   │   ├── persistence/        # sqlite/, artifact_fs, artifact_serializer（domain → schema JSON）,
-│   │   │   │                       # schema_validator
+│   │   │   │                       # schema_validator, file_cache（逐檔分析結果快取 analysis-cache.db）
 │   │   │   ├── security/           # secret_scrubber（寫入 Artifact 前遮蔽 secrets）
 │   │   │   └── process/            # 可注入的 subprocess runner（gh / claude / node 測試時換成 fake）
 │   │   ├── interface/http/         # FastAPI（docs/api.md），預設 0.0.0.0:8766（`--host` 可改）；有 frontend/dist 時一併 serve
@@ -102,6 +102,12 @@ pr_review_visualization/
   Timeline 事件另帶 `evidence_status`（spec §6），未確認的分支必須標示出來（spec §7）。
 - **TS 分析器為獨立 Node 程序。**
   TS Compiler API 只能在 JS runtime 執行；對後端仍實作同一個 `LanguageAnalyzer` port。
+- **靜態分析是增量的（`PR_EXPLORER_INCREMENTAL=off` 關閉）。**
+  每個檔案的分析結果存在 `analysis-cache.db`，key 為（分析器版本、語言、路徑、檔案內容、分析環境：ts-analyzer 程式、TypeScript 版本、根目錄 tsconfig）。
+  - Python：pass-1 摘要只取決於檔案內容，直接沿用。
+  - TypeScript：一個檔案的結果還取決於 type checker 從它看得到的東西。每筆記錄它直接依賴的檔案（import、re-export、`import()` 型別、`/// <reference>`、解析時讀到的 package.json、call 解析到的檔案）、模組解析找過但不存在的路徑，以及整個依賴錐的 Merkle hash；用到的全域名稱（script、`declare global`、JS 的 `$.fn.x = …`）只算宣告它的檔案本身的內容。依賴錐內有任何變動就重算。
+  - 重算的檔案交給一個只以它們加上所有宣告全域名稱的檔案為根的 program，TypeScript 自己載入其餘的 import closure；全域宣告依完整 program 的載入順序合併，所以 ts-analyzer 先模擬完整 program 的順序再驗證，對不上就整個重跑（完整模式）。
+  - 輸出與完整分析相同（在一個大型 repo 的三個 PR 上，system map 與 overlay 逐欄位相同）。
 - **JSON Schema 為唯一真相來源。** 前端型別自動產生；後端 domain 用純 dataclass，由 contract test 驗證輸出符合 schema。
   domain 因此不綁 Pydantic。替代方案是後端也從 schema 生成 Pydantic：少一層 mapping，但 domain 耦合框架。
 - **前端不套完整 Clean Architecture。**

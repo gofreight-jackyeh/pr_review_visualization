@@ -17,6 +17,7 @@ from .infrastructure.analyzers.typescript.ts_bridge import TypeScriptAnalyzer
 from .infrastructure.knowledge.local_docs import LocalDocsKnowledge
 from .infrastructure.knowledge.mcp_config import allowed_mcp_tools
 from .infrastructure.persistence.document_fs import FsDocumentStore
+from .infrastructure.persistence.file_cache import CACHE_DB, DEFAULT_MAX_BYTES, FileResultCache
 from .infrastructure.persistence.sqlite.analysis_repository import DB_NAME, SqliteAnalysisRepository
 from .infrastructure.process.runner import CommandRunner, SubprocessRunner
 from .infrastructure.security.secret_scrubber import scrub
@@ -61,6 +62,21 @@ def output_language_from_env() -> str:
     return lang
 
 
+def incremental_from_env() -> bool:
+    """PR_EXPLORER_INCREMENTAL: on (default) = per-file analysis results cached under the data home and only what a
+    change can affect re-analyzed; off = every file analyzed on every run, cache neither read nor written."""
+    v = (os.environ.get("PR_EXPLORER_INCREMENTAL") or "on").strip().lower()
+    if v not in ("on", "off", "1", "0", "true", "false"):
+        raise ValueError(f"PR_EXPLORER_INCREMENTAL must be on or off; got {v!r}")
+    return v in ("on", "1", "true")
+
+
+def analysis_cache_bytes() -> int:
+    """PR_EXPLORER_ANALYSIS_CACHE_MB: size bound of analysis-cache.db (least recently used entries go first)."""
+    mb = os.environ.get("PR_EXPLORER_ANALYSIS_CACHE_MB")
+    return int(float(mb) * (1 << 20)) if mb else DEFAULT_MAX_BYTES
+
+
 def build_container(
     home: Path | None = None,
     runner: CommandRunner | None = None,
@@ -81,13 +97,14 @@ def build_container(
     semantic = semantic or ClaudeCliSemanticAnalyzer(
         claude_runner or runner, os.environ.get("PR_EXPLORER_CLAUDE_BIN", "claude"), allowed_mcp_tools(),
         mcp_config=os.environ.get("PR_EXPLORER_MCP_CONFIG") or None, log_path=home / "logs" / "semantic-calls.jsonl")
-    config = config or PipelineConfig(output_language=output_language_from_env())
+    config = config or PipelineConfig(output_language=output_language_from_env(), incremental=incremental_from_env())
+    file_cache = FileResultCache(home / CACHE_DB, analysis_cache_bytes()) if config.incremental else None
     ts_path = ts_cli or Path(os.environ.get("PR_EXPLORER_TS_CLI") or PROJECT_ROOT / "tools/ts-analyzer/dist/cli.js")
     deps = PipelineDeps(
         source=source,
         diff_parser=_DiffParser(),
         generic=GenericAnalyzer(),
-        analyzers=[PythonAnalyzer(), TypeScriptAnalyzer(runner, ts_path)],
+        analyzers=[PythonAnalyzer(file_cache), TypeScriptAnalyzer(runner, ts_path, cache=file_cache)],
         semantic=semantic,
         knowledge=LocalDocsKnowledge(),
         store=store,

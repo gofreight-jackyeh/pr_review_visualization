@@ -10,10 +10,16 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import hashlib
+import logging
+import pickle
 import re
+import sys
 import time
 from pathlib import Path
+from typing import Protocol
 
+from ....application.ports import ANALYZER_VERSION
 from ....domain.model import ids
 from ....domain.model.graph import CodeRef, Edge, EntryFact, Evidence, FlowStep, Node, Producer, SideGraph, UnresolvedRef
 from .ast_analyzer import (
@@ -31,6 +37,23 @@ DJANGO = Producer("django_rules", "2")
 MAX_CANDIDATES = 10
 LANG = "py"
 FILE_WRITER_LIBS = {"csv", "openpyxl", "xlsxwriter", "xlwt", "tablib", "pyexcelerate"}  # top-level imports that write files
+log = logging.getLogger(__name__)
+
+
+class ResultCache(Protocol):  # infrastructure/persistence/file_cache.FileResultCache
+    def get_many(self, keys: list[str]) -> dict[str, bytes]: ...
+    def put_many(self, items: dict[str, bytes]) -> None: ...
+    def discard(self, keys: list[str]) -> None: ...
+
+
+def _pass1_signature() -> str:
+    """Pass-1 summaries are pickled: their key covers the code that builds them and the classes they are made of."""
+    here = Path(__file__).resolve().parent
+    h = hashlib.sha256(f"{ANALYZER_VERSION}\0{sys.version_info[:2]}".encode())
+    for f in [here / "ast_analyzer.py", *sorted((here / "django_rules").glob("*.py")),
+              here.parents[2] / "domain" / "model" / "graph.py"]:
+        h.update(b"\0" + f.read_bytes())
+    return h.hexdigest()[:32]
 
 
 class _Index:
@@ -102,10 +125,13 @@ class PythonAnalyzer:
     name = "python"
     language = "python"
 
-    def __init__(self) -> None:
+    def __init__(self, cache: ResultCache | None = None) -> None:
         # (path, content digest) -> pass-1 summary. Holds the most recently analyzed side only, so the next side or
         # commit re-parses just the files whose content differs (summaries are read-only after parsing).
         self._cache: dict[tuple[str, str], ModuleInfo] = {}
+        # second level on disk (survives restarts; shared by every repository): same summaries, pickled
+        self.store = cache
+        self._sig = _pass1_signature() if cache is not None else ""
         self.last_stats: dict = {}
 
     def available(self) -> bool:
@@ -122,17 +148,21 @@ class PythonAnalyzer:
         modules: dict[str, ModuleInfo] = {}
         cache: dict[tuple[str, str], ModuleInfo] = {}
         reused = 0
+        sources: dict[str, tuple[tuple[str, str], str]] = {}
         for p in paths:
             try:
                 raw, src = read_source(root, p)
             except OSError as exc:
                 notes.append(f"could not read {p}: {type(exc).__name__}")
                 continue
-            key = (p, file_digest(raw))
-            mod = self._cache.get(key)
+            sources[p] = ((p, file_digest(raw)), src)
+        stored = self._load({k for p, (k, _) in sources.items() if k not in self._cache})
+        new: dict[tuple[str, str], ModuleInfo] = {}
+        for p, (key, src) in sources.items():
+            mod = self._cache.get(key) or stored.get(key)
             if mod is None:
                 try:
-                    mod = parse_source(p, src)
+                    mod = new[key] = parse_source(p, src)
                 except (SyntaxError, ValueError, RecursionError) as exc:
                     notes.append(f"could not parse {p}: {type(exc).__name__} (structure unknown)")
                     continue
@@ -141,6 +171,7 @@ class PythonAnalyzer:
             cache[key] = mod
             modules[p] = mod
         self._cache = cache
+        self._save(new)
         t1 = time.perf_counter()
         _Builder(g, side, modules).build()
         t2 = time.perf_counter()
@@ -150,8 +181,36 @@ class PythonAnalyzer:
             notes.append(f"{unknown} dynamic call edge(s) marked unknown (getattr / dispatch / unresolved attribute)")
         g.notes["python"] = notes
         self.last_stats = {"side": side, "files": len(modules), "parsed": len(modules) - reused, "reused": reused,
-                           "parse_s": round(t1 - t0, 3), "build_s": round(t2 - t1, 3)}
+                           "from_disk": len(stored), "parse_s": round(t1 - t0, 3), "build_s": round(t2 - t1, 3)}
         return g
+
+    def _disk_key(self, key: tuple[str, str]) -> str:
+        return hashlib.sha256(f"py\0{self._sig}\0{key[0]}\0{key[1]}".encode("utf-8", "surrogatepass")).hexdigest()
+
+    def _load(self, keys: set[tuple[str, str]]) -> dict[tuple[str, str], ModuleInfo]:
+        if self.store is None or not keys:
+            return {}
+        dk = {self._disk_key(k): k for k in keys}
+        out, damaged = {}, []
+        for h, raw in self.store.get_many(list(dk)).items():
+            try:
+                mod = pickle.loads(raw)  # written by _save under PR_EXPLORER_HOME, never repository content
+            except Exception:  # truncated / from an incompatible build: recompute
+                mod = None
+            if isinstance(mod, ModuleInfo) and mod.path == dk[h][0]:
+                out[dk[h]] = mod
+            else:
+                damaged.append(h)
+        self.store.discard(damaged)
+        return out
+
+    def _save(self, new: dict[tuple[str, str], ModuleInfo]) -> None:
+        if self.store is None or not new:
+            return
+        try:
+            self.store.put_many({self._disk_key(k): pickle.dumps(m, protocol=pickle.HIGHEST_PROTOCOL) for k, m in new.items()})
+        except (pickle.PicklingError, RecursionError, TypeError) as exc:  # a summary that does not pickle: memory only
+            log.warning("python summaries not cached on disk: %s", exc)
 
 
 class _Builder:

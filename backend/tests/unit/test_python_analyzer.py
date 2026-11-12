@@ -60,3 +60,24 @@ def test_syntax_error_is_a_capability_note(tmp_path):
     (tmp_path / "bad.py").write_text("def (:\n")
     g = PythonAnalyzer().analyze(tmp_path, {"bad.py"}, "head")
     assert any("could not parse bad.py" in n for n in g.notes["python"])
+
+
+def test_summaries_persist_on_disk_across_processes(tmp_path):
+    """Second level of the parse cache: a new analyzer (a restarted server) loads unchanged files' summaries from
+    disk and builds the same graph; a damaged entry is parsed again."""
+    import sqlite3
+
+    from pr_explorer.infrastructure.persistence.file_cache import FileResultCache
+
+    want = analyze(tmp_path)
+    store = FileResultCache(tmp_path / "cache.db")
+    first = PythonAnalyzer(store)
+    g1 = first.analyze(tmp_path, set(SRC), "head")
+    assert first.last_stats["from_disk"] == 0 and store.size()[0] == len(SRC)
+    with sqlite3.connect(tmp_path / "cache.db") as db:
+        db.execute("UPDATE entries SET data = x'789c03000000000001' WHERE rowid = (SELECT min(rowid) FROM entries)")
+    second = PythonAnalyzer(store)
+    g2 = second.analyze(tmp_path, set(SRC), "head")
+    assert second.last_stats["from_disk"] == len(SRC) - 1 and second.last_stats["parsed"] == 1
+    for g in (g1, g2):
+        assert set(g.nodes) == set(want.nodes) and set(g.edges) == set(want.edges)

@@ -17,6 +17,8 @@ Try it without GitHub: `make demo`, then use local repo mode with the printed pa
 
 Generated explanations are in Traditional Chinese by default, matching the UI; `PR_EXPLORER_LANG=en` writes English and `PR_EXPLORER_LANG=auto` follows the repository's own language (Chinese when its docs / PR are Chinese). Follow-up questions: the 「問 AI」 button (every tab) asks Claude about the PR you are reading; answers cite the analysis' evidence and are labelled as AI interpretation. `PR_EXPLORER_ASK=local` (default) lets only browsers on this machine ask, `all` lets every client ask, `off` hides the feature. `make start` runs the server in the background and prints its URL; output goes to `~/.pr-explorer/logs/server-<port>.log`. `make stop` stops the server. Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port (stop it with the same `PORT=… make stop`).
 
+Static analysis is incremental: each file's Python and TypeScript analysis result is cached in `$PR_EXPLORER_HOME/analysis-cache.db`, keyed by the file's content, what it depends on and the analyzer version, so a run re-analyzes only the files a change can affect: changed files, the files importing them (through re-export chains and barrel files), and the users of a changed global script. The result is the same as analyzing every file. On a large repository (8,400 TS/JS files), a new base 72 commits later re-analyzes about 200 TS files instead of all of them. The first run on a repository fills the cache and takes slightly longer than a full run. `PR_EXPLORER_INCREMENTAL=off` analyzes every file on every run and neither reads nor writes the cache (for verification, or as an escape hatch). `PR_EXPLORER_ANALYSIS_CACHE_MB` bounds the cache's size (default 1024; least recently used entries go first). Deleting the file is always safe.
+
 ## What it will and won't claim
 
 - Structure (capabilities, flows, interfaces, rules) comes only from static analysis. Claude writes explanations, groups capabilities into business domains and cuts flows into phases — every statement must cite evidence or it is dropped, and these are labelled as Claude's.
@@ -30,6 +32,7 @@ Generated explanations are in Traditional Chinese by default, matching the UI; `
 
 - Everything is stored locally under `$PR_EXPLORER_HOME` (default `~/.pr-explorer/`): a bare git clone of each analyzed repository under `repos/` (this holds the **raw, unredacted source**), an SQLite index, and the result documents. Per-commit worktrees under `worktrees/` are kept for up to 10 minutes after an analysis (at most two per repository) so the next analysis can reuse them, then removed; leftovers are removed at the next server start.
 - Result documents are scrubbed for common secret formats (tokens, keys, passwords) before they are written. This is pattern-based and best-effort, not a guarantee.
+- `analysis-cache.db` holds per-file static analysis results: symbol names, imports and call targets of the analyzed files (no file contents). Python entries are pickled; the file is read only by this tool and must not come from someone else.
 - `logs/semantic-calls.jsonl` records one line per Claude call: time, kind, tier, attempt, prompt size, duration, exit code, reply size. It never contains prompt text.
 - With Claude enabled, the PR title and description, diff and code excerpts, repo docs and any context text you paste are sent to Claude through the local `claude` CLI (and so to the model service your CLI is signed in to). The initial prompt is scrubbed for secrets. Claude may also read any file inside the analyzed worktree during the call; those reads are **not** scrubbed.
 - A follow-up question (「問 AI」) sends the question, a digest of the stored analysis, the PR diff and up to 6 earlier questions and answers of that PR to Claude the same way; the PR's head is checked out again for that one call (then kept idle like an analysis' worktrees). Questions and answers are stored (scrubbed) in the SQLite index.
@@ -51,7 +54,7 @@ A shared result is reused only when all of these match:
 - The same Claude setting (off / light / standard / deep) and the same attached context documents.
 - The same repository identity. Results of GitHub PR URLs are keyed by `owner/repo`, so they work on any machine. Results of local repositories are keyed by the repository's absolute path, so they are reused only if the teammate's checkout sits at the same path.
 
-The teammate still needs read access to the repository, because the PR is resolved before the cache is checked. Share only `pr_explorer_v2.db`, `system-maps/` and `overlays/`. Do not share `repos/` (raw source) or `logs/`.
+The teammate still needs read access to the repository, because the PR is resolved before the cache is checked. Share only `pr_explorer_v2.db`, `system-maps/` and `overlays/`. Do not share `repos/` (raw source), `logs/` or `analysis-cache.db` (local only; it contains pickled data).
 
 Export (sender). `.backup` takes a consistent copy even while the server is running:
 

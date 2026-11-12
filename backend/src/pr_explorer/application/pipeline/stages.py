@@ -118,6 +118,9 @@ class PipelineConfig:
     reuse_max_changed_share: float = 0.4
     reuse_max_base_changes: int = 40  # ... or they were carried across more base commits than this ...
     reuse_max_age_days: float = 14.0  # ... or they are older than this many days
+    # Per-file static results cached under the data home; a run re-analyzes only what a change can affect (results
+    # equal a full run's). False (PR_EXPLORER_INCREMENTAL=off): every file analyzed every run, cache unused.
+    incremental: bool = True
 
     def language(self, *texts: str) -> str:
         return detect_language(*texts) if self.output_language == "auto" else self.output_language

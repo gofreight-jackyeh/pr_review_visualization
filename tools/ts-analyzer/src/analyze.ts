@@ -40,26 +40,65 @@ function safeRead(root: string, file: string): string | undefined {
   } catch { return undefined; } finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
-export function analyze(input: any) {
+// Input: {root, files, analyze?, meta?, context?, order?}. `files` are all TS/JS files; a full run makes all of them
+// the program's roots. `analyze` limits the reported files. `meta: true` adds, per reported file, what its result
+// depends on (see fileMeta) and moves per-file diagnostics to `file_diagnostics`, so the backend can cache each file's
+// result and know when to recompute it.
+// Incremental run (backend ts_bridge + ts_incremental): `context` lists the files adding to the global scope and
+// `order` the module references (as fileMeta's `order`) of files not being analyzed. The program is then rooted at
+// the `analyze` files plus `context` only (TypeScript loads the rest of their import closure itself), in the order
+// the full program would load them, because global declarations merge in that order; see incrementalProgram.
+// The CLI's output as one JSON string. Each file's result is serialized as soon as it is produced: an 8k-file
+// program's results kept as live objects cost hundreds of MB of the heap the type checker needs.
+export function analyzeToJson(input: any): string {
+  const out: any = analyze(input, true);
+  const files = out.files as string[];
+  out.files = [];
+  const s = JSON.stringify(out);
+  const at = s.indexOf('"files":[]') + '"files":['.length;
+  return s.slice(0, at) + files.join(",") + s.slice(at);
+}
+
+export function analyze(input: any, serialized = false) {
   if (!input || typeof input !== "object" || typeof input.root !== "string" || !path.isAbsolute(input.root))
     throw new InputError('"root" must be an absolute path string');
   if (!Array.isArray(input.files) || input.files.some((f: unknown) => typeof f !== "string"))
     throw new InputError('"files" must be an array of strings');
+  if (input.analyze !== undefined && (!Array.isArray(input.analyze) || input.analyze.some((f: unknown) => typeof f !== "string")))
+    throw new InputError('"analyze" must be an array of strings');
+  if (input.context !== undefined && (!Array.isArray(input.context) || input.context.some((f: unknown) => typeof f !== "string")))
+    throw new InputError('"context" must be an array of strings');
+  if (input.context !== undefined && !Array.isArray(input.analyze))
+    throw new InputError('"context" needs "analyze"');
+  if (input.order !== undefined && (typeof input.order !== "object" || input.order === null || Array.isArray(input.order)))
+    throw new InputError('"order" must be an object');
+  const meta = input.meta === true;
   if (!fs.existsSync(input.root) || !fs.statSync(input.root).isDirectory())
     throw new InputError(`root is not a directory: ${input.root}`);
   const root = fs.realpathSync(input.root);
   const diagnostics: string[] = [];
-  if (input.files.length === 0) return { version: "1", files: [], diagnostics };
+  const fileDiagnostics: { path: string; kind: string; text: string; meta?: unknown }[] = [];
+  const empty = () => meta ? { version: "1", files: [], diagnostics, file_diagnostics: fileDiagnostics } : { version: "1", files: [], diagnostics };
+  if (input.files.length === 0) return empty();
+  const wanted: Set<string> | null = input.analyze ? new Set(input.analyze as string[]) : null;
+  const fileDiag = (rel: string, kind: string, text: string, sf?: ts.SourceFile) => {
+    if (wanted && !wanted.has(rel)) return;
+    if (!meta) { diagnostics.push(text); return; }
+    let m: unknown;
+    try { m = sf ? fileMeta(sf) : undefined; } catch { m = undefined; } // without it the backend never caches the file
+    fileDiagnostics.push(m === undefined ? { path: rel, kind, text } : { path: rel, kind, text, meta: m });
+  };
 
   // Validate file list.
   const rels: string[] = [];
   for (const f of input.files as string[]) {
     const abs = path.resolve(root, f);
-    if (abs !== root && !abs.startsWith(root + path.sep)) { diagnostics.push(`skipped (outside root): ${f}`); continue; }
-    if (!EXTS.test(f)) { diagnostics.push(`skipped (unsupported extension): ${f}`); continue; }
-    if (!readable(root, abs)) { diagnostics.push(`skipped (not found, symlink or not a regular file): ${f}`); continue; }
+    if (abs !== root && !abs.startsWith(root + path.sep)) { fileDiag(f, "skip", `skipped (outside root): ${f}`); continue; }
+    if (!EXTS.test(f)) { fileDiag(f, "skip", `skipped (unsupported extension): ${f}`); continue; }
+    if (!readable(root, abs)) { fileDiag(f, "skip", `skipped (not found, symlink or not a regular file): ${f}`); continue; }
     rels.push(path.relative(root, abs).split(path.sep).join("/"));
   }
+  if (rels.length === 0) return empty();
 
   // Compiler options: honor root tsconfig (paths/baseUrl etc.), force safe settings.
   let options: ts.CompilerOptions = {};
@@ -90,14 +129,68 @@ export function analyze(input: any) {
   const host = ts.createCompilerHost(options);
   host.readFile = readFile; // the default getSourceFile reads through host.readFile
   host.fileExists = fileExists;
-  const program = ts.createProgram(rels.map((r) => path.join(root, r)), options, host);
-  const checker = program.getTypeChecker();
+  // Module resolution depends only on the importing file's directory (one set of options, no resolution mode):
+  // memoized per directory + specifier, the same answer as resolving again (failed lookups included).
+  const resolutions = new Map<string, ts.ResolvedModuleWithFailedLookupLocations>();
+  const resolve = (spec: string, fileName: string) => {
+    const k = `${path.dirname(fileName)}\0${spec}`;
+    let r = resolutions.get(k);
+    if (!r) resolutions.set(k, r = ts.resolveModuleName(spec, fileName, options, host));
+    return r;
+  };
+  let program: ts.Program;
+  let checker: ts.TypeChecker;
+  if (input.context === undefined) {
+    program = ts.createProgram(rels.map((r) => path.join(root, r)), options, host);
+    checker = program.getTypeChecker();
+  } else [program, checker] = incrementalProgram();
 
-  const relInRoot = (abs: string): string | null => {
+  function relInRoot(abs: string): string | null {
     const p = path.resolve(abs);
     if (!p.startsWith(root + path.sep) || p.split(path.sep).includes("node_modules")) return null;
     return path.relative(root, p).split(path.sep).join("/");
-  };
+  }
+
+  // The full program loads its roots (`rels`, sorted) depth-first, each file after its references and imports, and
+  // the checker merges global declarations in that load order (a global declared twice resolves to the first). So an
+  // incremental program must load the context files in the same relative order: roots ordered by a simulation of the
+  // full load order (known references from `order`; the analyzed files' own references from this program), then
+  // checked against the order TypeScript actually used. A mismatch rebuilds once with the corrected order; a second
+  // mismatch throws (the backend then runs the full program).
+  function incrementalProgram(): [ts.Program, ts.TypeChecker] {
+    const known = input.order as Record<string, unknown> | undefined ?? {};
+    const ctx = new Set<string>(input.context as string[]);
+    const roots = (order: string[]) => order.filter((r) => ctx.has(r) || wanted!.has(r)).map((r) => path.join(root, r));
+    const simulate = (depsOf: (rel: string) => string[]) => {
+      const seen = new Set<string>(), out: string[] = [];
+      for (const r of rels) {
+        if (seen.has(r)) continue;
+        seen.add(r);
+        const stack: [string, string[], number][] = [[r, depsOf(r), 0]];
+        while (stack.length) {
+          const top = stack[stack.length - 1];
+          if (top[2] < top[1].length) {
+            const d = top[1][top[2]++];
+            if (!seen.has(d)) { seen.add(d); stack.push([d, depsOf(d), 0]); }
+          } else { stack.pop(); out.push(top[0]); }
+        }
+      }
+      return out;
+    };
+    const cachedDeps = (rel: string) => { const v = known[rel]; return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; };
+    let order = simulate(cachedDeps);
+    for (let attempt = 0; ; attempt++) {
+      const p = ts.createProgram(roots(order), options, host);
+      const c = p.getTypeChecker(); // binds every file: module-ness and JS global augmentations are known from here
+      for (const sf of p.getSourceFiles()) { const rel = relInRoot(sf.fileName); if (rel && contributesGlobals(sf)) ctx.add(rel); }
+      const fromProgram = (rel: string) => { const sf = p.getSourceFile(path.join(root, rel)); return sf ? loadOrder(p, sf) : cachedDeps(rel); };
+      order = simulate(fromProgram);
+      const want = order.filter((r) => ctx.has(r));
+      const got = p.getSourceFiles().map((sf) => relInRoot(sf.fileName)).filter((r): r is string => !!r && ctx.has(r));
+      if (want.length === got.length && want.every((r, i) => r === got[i])) return [p, c];
+      if (attempt > 0) throw new Error("incremental program cannot load global declarations in the full program's order");
+    }
+  }
 
   const resolveDecl = (sym: ts.Symbol | undefined): Resolved | null => {
     if (!sym) return null;
@@ -124,18 +217,108 @@ export function analyze(input: any) {
 
   const files: any[] = [];
   for (const rel of rels) {
+    if (wanted && !wanted.has(rel)) continue;
     const sf = program.getSourceFile(path.join(root, rel));
-    if (!sf) { diagnostics.push(`not parsed: ${rel}`); continue; }
+    if (!sf) { fileDiag(rel, "fail", `not parsed: ${rel}`); continue; }
     try {
-      files.push(analyzeFile(sf, rel));
+      const f: any = analyzeFile(sf, rel);
+      if (meta) f.meta = fileMeta(sf);
+      files.push(serialized ? JSON.stringify(f) : f);
     } catch (e) {
       // One file the checker cannot handle (seen: a minified vendor bundle overflowing the stack) must not sink the
       // whole program; like tsserver after a failed request, the same checker goes on (a fresh one would need a
       // second full type-check's memory: an 8k-file program already uses ~3.1 GB of heap).
-      diagnostics.push(`not analyzed (${(e as Error).message}): ${rel}`);
+      fileDiag(rel, "fail", `not analyzed (${(e as Error).message}): ${rel}`, sf);
     }
   }
-  return { version: "1", files, diagnostics };
+  return meta ? { version: "1", files, diagnostics, file_diagnostics: fileDiagnostics } : { version: "1", files, diagnostics };
+
+  // In-repo files TypeScript loads for this file, in its load order: `/// <reference path>` first, then module
+  // references (imports, re-exports, import types, require/import(), JSDoc imports in JS) and module augmentations.
+  function loadOrder(p: ts.Program, sf: ts.SourceFile): string[] {
+    const out: string[] = [];
+    const add = (f: ts.SourceFile | undefined) => { const rel = f && relInRoot(f.fileName); if (rel) out.push(rel); };
+    for (const ref of sf.referencedFiles) {
+      const abs = path.resolve(path.dirname(sf.fileName), ref.fileName);
+      add(p.getSourceFile(abs) ?? p.getSourceFile(abs + ".ts") ?? p.getSourceFile(abs + ".d.ts"));
+    }
+    const js = /\.(js|jsx|mjs|cjs)$/.test(sf.fileName);
+    const lits: ts.StringLiteralLike[] = [...((sf as any).imports ?? []), ...((sf as any).moduleAugmentations ?? []).filter(ts.isStringLiteralLike)];
+    for (const l of lits) {
+      if (!js && l.flags & ts.NodeFlags.JSDoc) continue; // TypeScript does not load JSDoc imports of TS files
+      const r = resolve(l.text, sf.fileName).resolvedModule;
+      if (r && !r.isExternalLibraryImport) add(p.getSourceFile(r.resolvedFileName));
+    }
+    return out;
+  }
+
+  // A file whose declarations reach the global scope: a script (no import/export/require), a JS file assigning to an
+  // undeclared name's properties (`$.fn.x = ...`: binder jsGlobalAugmentations), `declare global` / `declare module`
+  // blocks, or a UMD `export as namespace X`.
+  function contributesGlobals(sf: ts.SourceFile): boolean {
+    if (!(ts.isExternalModule(sf) || (sf as any).commonJsModuleIndicator)) return true;
+    if ((sf as any).jsGlobalAugmentations?.size || (sf as any).symbol?.globalExports?.size) return true;
+    return sf.statements.some((st) => ts.isModuleDeclaration(st) && (!!(st.flags & ts.NodeFlags.GlobalAugmentation) || ts.isStringLiteral(st.name)));
+  }
+
+  // What a file's result can depend on besides its own text, for the backend's per-file cache:
+  // - module: false for a script (no import/export/require): its top-level names are global, like `declare global`
+  //   blocks and module augmentations of a module; `context` marks every such file (an incremental program keeps them
+  //   all, since any file may see them) and `globals` lists the names it adds.
+  // - deps: in-repo files its module references resolved to (imports incl. `import()` types and JSDoc imports,
+  //   re-exports, `/// <reference path>`, package.json files read while resolving).
+  // - probes: in-repo paths module resolution looked for and did not find; one of them appearing changes resolution.
+  // - vocab: identifiers it uses or declares (not property names) and its module specifiers (quoted), to match
+  //   against other files' `globals`.
+  function fileMeta(sf: ts.SourceFile) {
+    const deps = new Set<string>(), probes = new Set<string>(), vocab = new Set<string>(), globals = new Set<string>();
+    const isModule = !!(ts.isExternalModule(sf) || (sf as any).commonJsModuleIndicator);
+    const context = contributesGlobals(sf);
+    const addRel = (set: Set<string>, abs: string) => {
+      if (abs.includes("/node_modules/")) return; // outside the analysis (relInRoot); bare specifiers probe dozens each
+      const r = relInRoot(abs); if (r) set.add(r);
+    };
+    const specs: string[] = ((sf as any).imports ?? []).map((l: ts.StringLiteralLike) => l.text);
+    for (const l of ((sf as any).moduleAugmentations ?? []) as ts.Node[]) if (ts.isStringLiteralLike(l)) specs.push(l.text);
+    for (const spec of new Set(specs)) {
+      vocab.add(JSON.stringify(spec));
+      const r: any = resolve(spec, sf.fileName);
+      if (r.resolvedModule && !r.resolvedModule.isExternalLibraryImport) addRel(deps, r.resolvedModule.resolvedFileName);
+      for (const p of r.failedLookupLocations ?? []) addRel(probes, p);
+      for (const p of r.affectingLocations ?? []) addRel(deps, p);
+    }
+    for (const ref of sf.referencedFiles) {
+      const abs = path.resolve(path.dirname(sf.fileName), ref.fileName);
+      if (program.getSourceFile(abs)) addRel(deps, abs); else addRel(probes, abs);
+    }
+    if (!isModule) for (const k of ((sf as any).locals as Map<string, unknown> | undefined)?.keys() ?? []) globals.add(k);
+    // JS: `$.fn.x = ...` on an undeclared `$` declares a global `$` even in a module (binder: jsGlobalAugmentations)
+    for (const k of ((sf as any).jsGlobalAugmentations as Map<string, unknown> | undefined)?.keys() ?? []) globals.add(k);
+    for (const k of ((sf as any).symbol?.globalExports as Map<string, unknown> | undefined)?.keys() ?? []) globals.add(k);
+    for (const st of sf.statements) {
+      if (!ts.isModuleDeclaration(st) || !(st.flags & ts.NodeFlags.GlobalAugmentation || ts.isStringLiteral(st.name))) continue;
+      if (ts.isStringLiteral(st.name)) globals.add(JSON.stringify(st.name.text));
+      if (st.body && ts.isModuleBlock(st.body)) for (const d of st.body.statements) {
+        if (ts.isVariableStatement(d)) d.declarationList.declarations.forEach((v) => ts.isIdentifier(v.name) && globals.add(v.name.text));
+        else if ((d as any).name && ts.isIdentifier((d as any).name)) globals.add((d as any).name.text);
+      }
+    }
+    const walk = (n: ts.Node): void => {
+      if (ts.isIdentifier(n)) {
+        const p = n.parent as any;
+        const member = (ts.isPropertyAccessExpression(p) && p.name === n) || (ts.isQualifiedName(p) && p.right === n) ||
+          ts.isJsxAttribute(p) || ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) ||
+          ts.isPropertySignature(p) || ts.isMethodSignature(p) || ts.isGetAccessor(p) || ts.isSetAccessor(p)) && p.name === n);
+        if (!member) vocab.add(n.text);
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+    const rel = relInRoot(sf.fileName);
+    if (rel) deps.delete(rel);
+    return { module: isModule, context, globals: [...globals].sort(), deps: [...deps].sort(), probes: [...probes].sort(),
+             vocab: [...vocab].sort(), order: loadOrder(program, sf) };
+  }
 
   function analyzeFile(sf: ts.SourceFile, rel: string) {
     const imports: any[] = [], symbols: any[] = [], calls: any[] = [], component_usages: any[] = [];
@@ -146,7 +329,7 @@ export function analyze(input: any) {
     const exportedNames = new Set<string>(modSym ? checker.getExportsOfModule(modSym).map((s) => s.getName()) : []);
 
     const addImport = (spec: string, node: ts.Node) => {
-      const r = ts.resolveModuleName(spec, sf.fileName, options, host).resolvedModule;
+      const r = resolve(spec, sf.fileName).resolvedModule;
       let resolved: string | null = null;
       if (r && !r.isExternalLibraryImport) resolved = relInRoot(r.resolvedFileName);
       imports.push({ specifier: spec, resolved_path: resolved, line: line(node) });
