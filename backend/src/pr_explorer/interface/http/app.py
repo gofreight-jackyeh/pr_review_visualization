@@ -91,7 +91,9 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
     @app.middleware("http")  # added after CORS, so it runs first
     async def _check_host(request: Request, call_next):
         if extra_hosts is not None and not host_allowed(request.headers.get("host"), extra_hosts):
-            return _error(400, "bad_host", "Host header not allowed; add the name to PR_EXPLORER_ALLOWED_HOSTS")
+            name = _host_name(request.headers.get("host") or "")[:253]
+            return _error(400, "bad_host", f"Host {name!r} not allowed; start the server with "
+                                           f"PR_EXPLORER_ALLOWED_HOSTS={name} to allow it")
         return await call_next(request)
 
     @app.exception_handler(AppError)
