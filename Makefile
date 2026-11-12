@@ -1,14 +1,16 @@
 # PR Review Explorer — one-command setup and start.
 #   make setup   install dependencies and build the UI + TS analyzer
 #   make start   run the app (http://127.0.0.1:8766, reachable on the LAN)
+#   make stop    stop it
 HOST ?= 0.0.0.0
 PORT ?= 8766
 
-.PHONY: help setup start test demo clean check-tools
+.PHONY: help setup start stop test demo clean check-tools
 
 help:
 	@echo "make setup   install deps, build frontend and ts-analyzer"
 	@echo "make start   start the server on $(HOST):$(PORT) (HOST=127.0.0.1 for this machine only)"
+	@echo "make stop    stop the server on port $(PORT)"
 	@echo "make test    run backend, frontend and ts-analyzer tests"
 	@echo "make demo    build the sample Django repo under .data/fixtures/shop to try local mode"
 	@echo "make clean   remove build outputs (keeps ~/.pr-explorer analysis data)"
@@ -28,6 +30,10 @@ setup: check-tools
 start:
 	@test -f frontend/dist/index.html || $(MAKE) setup
 	cd backend && uv run pr-explorer serve --host $(HOST) --port $(PORT)
+
+# Matches `pr-explorer serve ... --port $(PORT)` (also the `uv run` wrapper); "[p]" keeps pkill off this shell's own command line.
+stop:
+	@pkill -f '[p]r-explorer serve .*--port $(PORT)( |$$)' && echo "stopped the server on port $(PORT)" || echo "no server running on port $(PORT)"
 
 test:
 	cd backend && uv run pytest -q

@@ -15,7 +15,7 @@ Paste a GitHub PR URL, or open "Local repo mode" and give a repo path plus base/
 
 Try it without GitHub: `make demo`, then use local repo mode with the printed path, base `main`, head `feature/discount`.
 
-Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port.
+`make stop` stops the server. Other targets: `make test`, `make clean`, `make help`. `PORT=… make start` changes the port (stop it with the same `PORT=… make stop`).
 
 ## What it will and won't claim
 
