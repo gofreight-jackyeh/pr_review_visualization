@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import threading
 import uuid
 
@@ -18,8 +19,8 @@ from ...domain.model.ids import short_hash
 from ...domain.services.complexity_score import MODES
 from .. import ports
 from ..pipeline import STAGES, Context, Pipeline
-from ..ports import AnalysisRepository, AnalysisRequest, ResolvedPr, SourceError, SourceProvider
-from .errors import AcquireFailed, InvalidInput
+from ..ports import AnalysisRepository, AnalysisRequest, LocalSpec, ResolvedPr, SourceError, SourceProvider
+from .errors import AcquireFailed, InvalidInput, NotFound
 
 
 def cache_key(pr: ResolvedPr, analyzer_version: str, semantic_mode: str, context_docs=(), lang: str = "auto") -> str:
@@ -58,10 +59,30 @@ class AnalyzePr:
         self.output_language = pipeline.d.config.output_language  # part of both cache keys
         self.pipeline_runs = 0
         self._pending: dict[str, tuple[AnalysisRequest, ResolvedPr, str]] = {}
+        self._forced: dict[str, str] = {}  # overlay key -> id of the forced run in flight (single-flight for retries)
         self._lock = threading.Lock()
 
-    def start(self, req: AnalysisRequest) -> tuple[str, str, bool]:
-        """Returns (analysis_id, status, cached). Resolves exact SHAs synchronously."""
+    def regenerate(self, overlay_id: str) -> tuple[str, str, bool]:
+        """Re-run, bypassing the cache, the exact request that produced this overlay (same PR, same Claude mode), so the
+        new result replaces it. Pasted context documents are not stored, so such an analysis cannot be repeated here."""
+        ov = self.repo.get_overlay_index(overlay_id)
+        rec = self.repo.get(ov["analysis_id"]) if ov else None
+        if rec is None:
+            raise NotFound(f"overlay {overlay_id} not found")
+        raw = json.loads(rec["request_json"])
+        if raw.get("context_docs"):
+            raise InvalidInput("this analysis had attached documents, which are not stored: start it again from the home page")
+        local = raw.get("local")
+        req = AnalysisRequest(pr_url=raw.get("pr_url"), local=LocalSpec(**local) if local else None,
+                              semantic_mode=raw.get("semantic_mode") or "auto")
+        return self.start(req, force=True)
+
+    def start(self, req: AnalysisRequest, force: bool = False) -> tuple[str, str, bool]:
+        """Returns (analysis_id, status, cached). Resolves exact SHAs synchronously.
+
+        force: skip the overlay cache hit and run the pipeline again (retry of failed / unavailable AI texts). A map
+        whose Claude step did not complete is rebuilt by the pipeline anyway (REUSABLE_MAP_SEMANTIC); a complete one is
+        reused. A second forced request for a key that is already being re-run joins that run instead of starting another."""
         validate_request(req)
         try:
             pr = self.source.resolve(req)
@@ -71,7 +92,12 @@ class AnalyzePr:
         aid = f"a_{uuid.uuid4().hex[:16]}"
         req_dict = dataclasses.asdict(req)
         req_dict["context_docs"] = [{"name": d.name} for d in req.context_docs]  # don't persist pasted contents
-        hit = self.repo.find_overlay(key)
+        if force:
+            with self._lock:
+                joined = self._forced.get(key)
+            if joined:
+                return joined, (self.repo.get(joined) or {}).get("status", "queued"), False
+        hit = None if force else self.repo.find_overlay(key)
         if hit and Path(hit["path"]).is_file():
             self.repo.create(aid, req_dict, STAGES, status="done", cache_key=key, title=pr.title, repo=pr.repo_name,
                              head_sha=pr.head_sha, overlay_id=hit["id"], system_map_id=hit["system_map_id"])
@@ -80,6 +106,8 @@ class AnalyzePr:
                          head_sha=pr.head_sha)
         with self._lock:
             self._pending[aid] = (req, pr, key)
+            if force:
+                self._forced[key] = aid
         return aid, "queued", False
 
     def run(self, analysis_id: str) -> Path | None:
@@ -104,6 +132,9 @@ class AnalyzePr:
             self.repo.set_status(analysis_id, "failed", error=f"{type(exc).__name__}: {exc}"[:2000])
             return None
         finally:
+            with self._lock:
+                if self._forced.get(key) == analysis_id:
+                    del self._forced[key]
             if ctx.workspace is not None:  # nothing reads a worktree after its analysis; the bare cache stays
                 try:
                     self.source.release(pr)

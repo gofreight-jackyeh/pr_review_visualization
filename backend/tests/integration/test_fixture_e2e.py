@@ -381,3 +381,34 @@ def test_architecture_rules_and_checks_on_the_discount_pr(shop_docs):
     lay = checks[("dependency_direction", "rule:inferred:layers:cap:orders")]
     assert "apply_discount_code" in lay["title"] and lay["existing_refs"]
     assert all(x["source"] == "static" for x in ov["architecture_checks"])
+
+
+def test_forced_run_bypasses_overlay_cache_and_rebuilds_a_failed_map(shop_repo, home):
+    """Retry of failed AI texts: force skips the overlay hit; a failed map is rebuilt, a complete one is reused."""
+    smart, down = SmartClaude(), {"on": True}
+    c = build_container(home=home, claude_runner=RecordingRunner(
+        lambda a, i: RunResult(127, "", "claude: not found") if down["on"] else smart(a, i)))
+    paths1, rec1 = c.analyze.analyze_sync(local_request(shop_repo, mode="auto"))
+    smap, ov = load_docs(paths1)
+    assert smap["semantic"]["status"] == "unavailable" and ov["semantic"]["status"] == "unavailable"
+    assert c.analyze.start(local_request(shop_repo, mode="auto"))[2] is True  # normal request: cache hit
+    assert c.analyze.pipeline_runs == 1
+
+    down["on"] = False
+    aid, status, cached = c.analyze.start(local_request(shop_repo, mode="auto"), force=True)
+    assert (status, cached) == ("queued", False)
+    assert c.analyze.start(local_request(shop_repo, mode="auto"), force=True)[0] == aid  # single-flight
+    c.analyze.run(aid)
+    assert c.analyze.pipeline_runs == 2 and c.analyze.pipeline.system_map_builds == 2  # failed map not reused
+    rec2 = c.status.get(aid)
+    assert rec2["status"] == "done" and rec2["overlay_id"] == rec1["overlay_id"]
+    smap2, ov2 = load_docs({"overlay": c.analyze.repo.get_overlay_index(rec2["overlay_id"])["path"],
+                            "system_map": c.analyze.repo.get_system_map(rec2["system_map_id"])["path"]})
+    assert smap2["semantic"]["status"] == "done" and ov2["semantic"]["status"] == "done"
+    assert c.analyze.start(local_request(shop_repo, mode="auto"))[2] is True  # the cache now holds the good result
+
+    builds = c.analyze.pipeline.system_map_builds  # complete map: forced run reuses it
+    aid3, _, _ = c.analyze.start(local_request(shop_repo, mode="auto"), force=True)
+    c.analyze.run(aid3)
+    assert c.analyze.pipeline_runs == 3 and c.analyze.pipeline.system_map_builds == builds
+    assert c.analyze.start(local_request(shop_repo, mode="auto"), force=True)[0] != aid3  # finished runs do not block a new one

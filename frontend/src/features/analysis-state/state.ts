@@ -19,6 +19,16 @@ export function analysisStates(m: Model): StateKey[] {
   return out
 }
 
+/**
+ * 「重新產生 AI 說明」 applies when Claude's texts failed or were unavailable and it was not turned off by choice
+ * (decision.mode "off"); never while a run is in progress. A skipped document (auto tier none) has nothing to retry.
+ */
+export function canRetryAi(m: Model): boolean {
+  const docs = [m.map, ...(m.overlay ? [m.overlay] : [])]
+  if (docs.some((d) => isPending(d) || d.semantic.decision?.mode === "off")) return false
+  return docs.some((d) => d.semantic.status === "failed" || d.semantic.status === "unavailable")
+}
+
 /** Flows this PR touches (flow_changes, impacted or head-only flows). */
 export const relatedFlows = (m: Model) => flowList(m).filter((i) => i.related)
 export const hasFlows = (m: Model) => relatedFlows(m).length > 0

@@ -41,6 +41,7 @@ class AnalysisIn(BaseModel):
     local: LocalIn | None = None
     context_docs: list[ContextDocIn] = Field(default_factory=list, max_length=20)
     semantic_mode: Literal["auto", "off", "light", "standard", "deep"] = "auto"
+    force: bool = False  # re-run although the overlay is cached (retry of failed / unavailable AI texts)
 
 
 class QuestionIn(BaseModel):
@@ -165,7 +166,15 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
             context_docs=[ContextDoc(d.name, d.content) for d in body.context_docs],
             semantic_mode=body.semantic_mode,
         )
-        aid, status, cached = c.analyze.start(req)
+        aid, status, cached = c.analyze.start(req, force=body.force)
+        if not cached:
+            pool.submit(c.analyze.run, aid)
+        return JSONResponse({"analysis_id": aid, "status": status, "cached": cached}, status_code=200 if cached else 202)
+
+    @app.post("/api/overlays/{overlay_id}/regenerate")
+    def regenerate(overlay_id: str):
+        """Retry of failed / unavailable AI texts: the request that produced the overlay, run again past the cache."""
+        aid, status, cached = c.analyze.regenerate(overlay_id)
         if not cached:
             pool.submit(c.analyze.run, aid)
         return JSONResponse({"analysis_id": aid, "status": status, "cached": cached}, status_code=200 if cached else 202)

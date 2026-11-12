@@ -6,6 +6,7 @@ import type { Text } from "@/entities/artifact/types"
 import { firstSentence, LONG_TEXT } from "./sentence"
 import { ReadingPath } from "@/features/guide/Guide"
 import { AI_MISSING, aiMissing, analysisStates, scopeLine } from "@/features/analysis-state/state"
+import { RetryAi } from "@/features/analysis-state/RetryAi"
 import { interfaceChanges } from "@/features/architecture/interfaces"
 import { cardDomId, changeCards, missingBefore, STEP_COUNT_LABEL, type ChangeCard } from "@/features/changes/cards"
 import { StaticGroups } from "@/features/changes/StaticChange"
@@ -44,7 +45,7 @@ function Purpose({ m, t }: { m: Model; t: Text }) {
   const open = ex.expanded.has("clamp:purpose")
   return (
     <div className="purpose-md" data-testid="purpose-md">
-      <p className="source-note" data-testid="purpose-label" title="直接取自 PR 標題與描述，未經 AI 說明">PR 描述（AI 摘要{AI_MISSING[aiMissing(m)]}）</p>
+      <p className="source-note" data-testid="purpose-label" title="直接取自 PR 標題與描述，未經 AI 說明">PR 描述（AI 摘要{AI_MISSING[aiMissing(m)]}）<RetryAi /></p>
       <Markdown text={t.text} className={long && !open ? "md-clamp" : ""} />
       {long && <button className="link small" aria-expanded={open} data-testid="purpose-more" onClick={() => ex.toggle("clamp:purpose", !open)}>{open ? "收合" : "展開全文"}</button>}
     </div>

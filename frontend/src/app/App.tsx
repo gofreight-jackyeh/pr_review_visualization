@@ -56,7 +56,7 @@ function Header({ model, fixture, onHome, reanalyze }: { model: Model; fixture: 
   )
 }
 
-function Explorer({ loaded, onHome }: { loaded: Loaded; onHome: () => void }) {
+function Explorer({ loaded, onHome, onRetryAi }: { loaded: Loaded; onHome: () => void; onRetryAi?: () => void }) {
   const re = useReanalysis(loaded.model, loaded.fixture)
   const key = loaded.model.overlay?.overlay_id ?? loaded.model.map.system_map_id
   return (
@@ -64,7 +64,7 @@ function Explorer({ loaded, onHome }: { loaded: Loaded; onHome: () => void }) {
       <Header model={loaded.model} fixture={loaded.fixture} onHome={onHome} reanalyze={re.start} />
       {re.ui}
       {/* keyed by overlay id (unchanged by backfill), so navigation, selection, expansion and scroll survive the reload */}
-      <ExplorerProvider key={key} model={loaded.model} fixture={!!loaded.fixture}><Workspace onReanalyze={re.start} /></ExplorerProvider>
+      <ExplorerProvider key={key} model={loaded.model} fixture={!!loaded.fixture} retryAi={onRetryAi}><Workspace /></ExplorerProvider>
     </>
   )
 }
@@ -100,13 +100,23 @@ export function App() {
         (e: unknown) => setError(e instanceof Error ? e.message : String(e)))
     })
   }, [pendingOverlay]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 「重新產生 AI 說明」: the server re-runs the request that produced this overlay, mark the failed documents pending and let the poll above swap in the result
+  const retryAi = loaded && !loaded.fixture && loaded.model.overlay ? async () => {
+    const m = loaded.model, ov = m.overlay!
+    setError(null)
+    try {
+      const { analysis_id } = await api.regenerate(ov.overlay_id) // the server repeats the original request (same Claude mode)
+      const pend = <D extends { semantic: { status: string } }>(d: D): D => (d.semantic.status === "failed" || d.semantic.status === "unavailable" ? { ...d, semantic: { status: "pending" } } : d)
+      setLoaded({ ...loaded, model: buildModel(pend(m.map), pend(ov)), analysisId: analysis_id })
+    } catch (e) { setError(`重新產生 AI 說明失敗：${e instanceof Error ? e.message : String(e)}`) }
+  } : undefined
   const home = () => { history.replaceState(null, "", window.location.pathname); window.location.reload() }
 
   if (loaded) {
     return (
       <div className="app">
         {error && <div className="banner" role="alert">{error}</div>}
-        <Explorer loaded={loaded} onHome={home} />
+        <Explorer loaded={loaded} onHome={home} onRetryAi={retryAi} />
       </div>
     )
   }

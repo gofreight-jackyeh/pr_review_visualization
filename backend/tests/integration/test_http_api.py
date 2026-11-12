@@ -38,6 +38,16 @@ def test_http_flow(shop_repo, home):
     r2 = client.post("/api/analyses", json=body)
     assert r2.status_code == 200 and r2.json() == {"analysis_id": r2.json()["analysis_id"], "status": "done", "cached": True}
 
+    r_force = client.post("/api/analyses", json={**body, "force": True})  # retry: bypasses the cache, same overlay id
+    assert r_force.status_code == 202 and r_force.json()["cached"] is False
+    assert _wait(client, r_force.json()["analysis_id"])["overlay_id"] == st["overlay_id"]
+
+    # 「重新產生 AI 說明」: the server repeats the stored request (same mode) -> same overlay id; unknown overlay -> 404
+    r_regen = client.post(f"/api/overlays/{st['overlay_id']}/regenerate")
+    assert r_regen.status_code == 202 and r_regen.json()["cached"] is False
+    assert _wait(client, r_regen.json()["analysis_id"])["overlay_id"] == st["overlay_id"]
+    assert client.post("/api/overlays/ov_00000000000000000000/regenerate").status_code == 404
+
     # a second PR on the same base reuses the map
     body3 = {"local": {"repo_path": str(shop_repo), "base": "main", "head": "feature/restock-alert"}, "semantic_mode": "off"}
     st3 = _wait(client, client.post("/api/analyses", json=body3).json()["analysis_id"])
@@ -53,7 +63,7 @@ def test_http_flow(shop_repo, home):
         r = client.get(gone)
         assert r.status_code == 404 and r.json()["error"]["code"] == "not_found", gone
     listing = client.get("/api/analyses").json()
-    assert len(listing) == 3 and listing[0]["analysis_id"] == st3["analysis_id"]
+    assert len(listing) == 5 and listing[0]["analysis_id"] == st3["analysis_id"]  # + the forced run and the regenerate run
     assert {"overlay_id", "system_map_id", "title", "repo", "head_sha", "created_at", "status"} <= listing[0].keys()
 
 

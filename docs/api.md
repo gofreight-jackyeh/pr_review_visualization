@@ -15,12 +15,16 @@ Start (or reuse) an analysis.
   "pr_url": "https://github.com/owner/repo/pull/123",
   "local": { "repo_path": "/abs/path", "base": "main", "head": "feature-x", "title": "optional", "body": "optional" },
   "context_docs": [{ "name": "jira-ABC-1.md", "content": "..." }],
-  "semantic_mode": "auto"
+  "semantic_mode": "auto",
+  "force": false
 }
 ```
 
 - Exactly one of `pr_url` / `local` is required (400 otherwise).
 - `semantic_mode`: `auto | off | light | standard | deep` (default `auto`). It controls the PR explanation tier; the system map explanation runs whenever semantic_mode is not `off`.
+- `force` (optional, default `false`): retry. Skips the overlay cache hit and runs the pipeline again for the same request (always `202`, `cached: false`); the new overlay replaces the cached one under the same `overlay_id`. The system map is reused when its Claude step completed (`done` / `skipped`); a map whose Claude step failed, was unavailable or only partly explained is rebuilt. A second forced request for a key that is already being re-run returns the running analysis. The client must resend the request body (attached `context_docs` are not stored); a different `semantic_mode` or docs set is a different key.
+
+`POST /api/overlays/{overlay_id}/regenerate` (no body): the UI's 「重新產生 AI 說明」. The server repeats the stored request that produced that overlay (same PR, same `semantic_mode`) with `force` and answers like `POST /api/analyses` (`202`, `cached: false`). `404` for an unknown overlay; `400` when that analysis had attached `context_docs` (they are not stored — start it again from the home page).
 - Overlay cache key: `(repo, merge_base_sha, head_sha, analyzer_version, schema_version, semantic_mode, context_docs hash)`. A hit responds immediately with `"cached": true`, `status: "done"`.
 - System map cache key: `(repo, merge_base_sha, analyzer_version, schema_version, semantic_on)`. Reused across PRs.
   On a miss the static map is rebuilt for the merge base, and Claude texts are carried over from the nearest stored

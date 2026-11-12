@@ -25,6 +25,8 @@ export interface AnalysisRequest {
   local?: { repo_path: string; base: string; head: string; title?: string; body?: string }
   context_docs?: { name: string; content: string }[]
   semantic_mode: SemanticMode
+  /** retry: skip the overlay cache and run again (docs/api.md「POST /api/analyses」) */
+  force?: boolean
 }
 export interface AnalysisCreated { analysis_id: string; status: string; cached: boolean }
 export interface Stage { name: string; status: "pending" | "running" | "done" | "failed" | "skipped"; message: string }
@@ -44,6 +46,7 @@ export interface Question {
 const enc = encodeURIComponent
 export const api = {
   createAnalysis: (b: AnalysisRequest) => req<AnalysisCreated>("/api/analyses", { method: "POST", body: JSON.stringify(b) }),
+  regenerate: (overlayId: string) => req<AnalysisCreated>(`/api/overlays/${enc(overlayId)}/regenerate`, { method: "POST" }),
   listAnalyses: () => req<AnalysisSummary[]>("/api/analyses"),
   getAnalysis: (id: string) => req<AnalysisStatus>(`/api/analyses/${enc(id)}`),
   getOverlay: (id: string) => req<PrOverlay>(`/api/overlays/${enc(id)}`),

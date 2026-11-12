@@ -62,6 +62,8 @@ type HistState = { prx?: { id: string; snap: ViewSnap } }
 export interface Explorer {
   model: Model
   fixture: boolean
+  /** regenerate failed / unavailable AI texts (undefined: not possible here, e.g. sample data or a local diff) */
+  retryAi?: () => void
   nav: Nav
   /** explicit navigation: a new history entry; `anchor` is the element id to bring into view and focus */
   go: (to: Partial<ViewSnap> & { nav: Nav }, anchor?: string) => void
@@ -131,7 +133,7 @@ const navFromHash = (): Nav | null => { const h = window.location.hash.slice(1);
 const newEntryId = (() => { let n = 0; return () => `${Date.now().toString(36)}-${n++}` })()
 const sameSel = (a: Selection | null, b: Selection | null) => a?.kind === b?.kind && a?.id === b?.id
 
-export function ExplorerProvider({ model, fixture, children }: { model: Model; fixture: boolean; children: ReactNode }) {
+export function ExplorerProvider({ model, fixture, retryAi, children }: { model: Model; fixture: boolean; retryAi?: () => void; children: ReactNode }) {
   const initial = useMemo(() => (history.state as HistState | null)?.prx?.snap, [])
   const [nav, setNav] = useState<Nav>(() => initial?.nav ?? navFromHash() ?? (model.overlay ? "summary" : "context"))
   const [card, setCard] = useState<string | null>(initial?.card ?? null)
@@ -358,7 +360,7 @@ export function ExplorerProvider({ model, fixture, children }: { model: Model; f
   }, [model, go, flowId])
 
   const value: Explorer = {
-    model, fixture, nav, go, scrollRef, card, setCard, cardView, panel, openDetail, closeDetail, ask, openAsk, closeAsk, expanded, toggle, phase, setPhase, selection, select, selectElement,
+    model, fixture, retryAi, nav, go, scrollRef, card, setCard, cardView, panel, openDetail, closeDetail, ask, openAsk, closeAsk, expanded, toggle, phase, setPhase, selection, select, selectElement,
     level, setLevel, showShared, setShowShared, showEngineering, setShowEngineering, pages, nextPage, scene,
     layers, setLayers, emphasis, setEmphasis, query, setQuery, spotlight, setSpotlight, showArch, focusCapability,
     flowId, setFlowId, flowView, setFlowView, prFocus, setPrFocus, showInfraSteps, setShowInfraSteps: setShowInfra, expandedSeg, setExpandedSeg, segPage, setSegPage,
