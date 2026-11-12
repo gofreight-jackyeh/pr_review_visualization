@@ -28,6 +28,7 @@ NON_CODE = {"markdown", "text", "restructuredtext", "json", "yaml", "toml", "htm
 TS_LANGS = {"typescript", "javascript"}
 SKIP_DIRS = {"node_modules", "site-packages", ".venv", "venv", "dist", "build", "__pycache__", "migrations"}
 FOLLOW = {"calls", "routes_to", "uses_model", "renders"}  # 'emits' is async: the task is a flow of its own
+REVERSE_FOLLOW = FOLLOW | {"emits"}  # a flow that enqueues a task running changed code is touched by the change too
 MAX_REACH = 400
 # Layer 4 split + category thresholds (spec v2 §4/§5). Deliberately small, explicit constants.
 SPLIT_MAX_ENTRY_POINTS = 50  # a capability with more entry points is split by its direct sub-directories (one level)
@@ -183,6 +184,29 @@ def reach_from(start: str | None, adj: dict[str, list[str]], limit: int = MAX_RE
                 if len(order) >= limit:
                     break
     return order
+
+
+def reverse_reach(sg: SideGraph, targets: set[str], max_depth: int, max_nodes: int) -> tuple[dict[str, int], bool]:
+    """Every node that (transitively) calls / routes to / enqueues / queries one of `targets`, with its distance in edges
+    (BFS over reversed edges, nearest first). Bounded by `max_depth` and `max_nodes`; the bool says a bound was hit."""
+    radj: dict[str, list[str]] = {}
+    for e in sg.edges.values():
+        if e.kind in REVERSE_FOLLOW:
+            radj.setdefault(e.target, []).append(e.source)
+    depth = {t: 0 for t in sorted(targets)}
+    q = deque(depth)
+    capped = False
+    while q:
+        x = q.popleft()
+        for s in sorted(radj.get(x, [])):
+            if s in depth:
+                continue
+            if depth[x] + 1 > max_depth or len(depth) >= max_nodes:
+                capped = True
+                continue
+            depth[s] = depth[x] + 1
+            q.append(s)
+    return depth, capped
 
 
 def plan_splits(sg: SideGraph, caps: CapabilityIndex, limit: int = SPLIT_MAX_ENTRY_POINTS) -> dict[str, str]:

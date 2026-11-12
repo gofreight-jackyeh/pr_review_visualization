@@ -7,7 +7,7 @@ import { RelationView } from "@/features/relations/RelationView"
 import { IMPACT_SENTENCE } from "@/features/relations/wording"
 import { CHANGE_LABEL, COMPAT } from "@/features/architecture/interfaces"
 import { AI_MISSING, aiMissing, scopeLine } from "@/features/analysis-state/state"
-import { cardDomId, changeCards, missingBefore, STEP_COUNT_LABEL, stepCounts, type ChangeCard } from "./cards"
+import { cardDomId, changedModules, changeCards, missingBefore, STEP_COUNT_LABEL, stepCounts, type ChangeCard } from "./cards"
 import { StaticGroups } from "./StaticChange"
 
 const names = (m: Model, ids: string[]) => ids.map((id) => nameOfId(m, id).primary).join("、")
@@ -88,6 +88,25 @@ export function ChangeCardView({ c }: { c: ChangeCard }) {
   )
 }
 
+/** No flow shows a step change: say why in plain words, point to 審查重點 and list what changed, by module. */
+function NoFlowChange({ m }: { m: Model }) {
+  const ex = useExplorer()
+  const mods = changedModules(m)
+  return (
+    <section className="notice info" data-testid="no-flow-change" aria-labelledby="h-no-flow">
+      <h3 id="h-no-flow">沒有流程步驟的變動</h3>
+      <p className="small">靜態分析沒有找到經過這些修改的入口（API、背景工作、指令），或修改沒有改變業務步驟。建議先看審查重點，再直接讀下面的修改。</p>
+      <button onClick={() => ex.go({ nav: "review" }, "view-title")} data-testid="no-flow-go-review">先看審查重點</button>
+      <ul className="plain small" data-testid="no-flow-modules">
+        {mods.slice(0, 8).map((g) => (
+          <li key={g.dir}><code className="tech">{g.dir === "." ? "（根目錄）" : `${g.dir}/`}</code> {g.files.map((f) => g.dir === "." ? f.path : f.path.slice(g.dir.length + 1)).join("、")}</li>
+        ))}
+        {mods.length > 8 && <li className="muted">另有 {mods.length - 8} 個模組</li>}
+      </ul>
+    </section>
+  )
+}
+
 /** 變更與影響: concrete change cards lead into their flows and related features; other flows sit behind an entry. */
 export function ChangesView() {
   const ex = useExplorer()
@@ -107,6 +126,7 @@ export function ChangesView() {
     <article className="view changes" data-testid="changes">
       <h2 id="view-title" tabIndex={-1}>{NAV[1].question}</h2>
       <p className="muted small">從具體的修改開始：先看修改前後，再看它經過的流程或相關的功能。</p>
+      {m.overlay && m.overlay.flow_changes.length === 0 && m.overlay.changes.files.length > 0 && <NoFlowChange m={m} />}
       {cards.length === 0 ? <p className="empty-result">本次分析未發現修改。<span className="muted small">{scopeLine(m)}</span></p> : cards.map((c) => <ChangeCardView key={c.id} c={c} />)}
       {related.length > 0 && (
         <section aria-labelledby="h-related" data-testid="related-flows">

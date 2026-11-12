@@ -1,6 +1,7 @@
 """Client-facing surface of a repository (spec §8 outer ring), read statically — nothing is executed or installed.
 
-* `.pr-explorer.yml` (optional, repository root): `outer:` / `exclude_outer:` glob lists for paths / routes / packages.
+* `.pr-explorer.yml` (optional, repository root): `outer:` / `exclude_outer:` glob lists for paths / routes / packages,
+  `openapi:` list of committed OpenAPI documents.
   Parsed by a tiny YAML-subset reader (two levels of keys, `- item` or `[a, b]` lists) so no YAML dependency is needed;
   anything else in the file is reported as a note and ignored.
 * Web app routes: file conventions (Next.js pages/ and app/, SvelteKit src/routes, Nuxt pages/) plus `path: "..."`
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from ...domain.model.convention import CONFIG_KEYS, PackageExport, PackageInfo, RepoConfig, RepoSurface, WebRoute
 from ..security.repo_files import read_repo_text
+from .openapi import read_api_specs
 
 CONFIG_FILES = (".pr-explorer.yml", ".pr-explorer.yaml")
 SKIP = {"node_modules", "dist", "build", ".next", "coverage", ".venv", "venv", "site-packages", "__pycache__"}
@@ -76,6 +78,9 @@ def parse_repo_config(text: str, path: str = CONFIG_FILES[0]) -> RepoConfig:
         indent = len(line) - len(line.lstrip())
         body = line.strip()
         target = {"outer": cfg.outer, "exclude_outer": cfg.exclude_outer}.get(top or "")
+        if body.startswith("- ") and top == "openapi":
+            cfg.openapi.append((_unquote(body[2:]), no))
+            continue
         if body.startswith("- "):
             if target is None:
                 cfg.notes.append(f"{path}:{no}: list item outside outer / exclude_outer ignored")
@@ -89,6 +94,12 @@ def parse_repo_config(text: str, path: str = CONFIG_FILES[0]) -> RepoConfig:
             continue
         if indent == 0:
             top, sub = key, None
+            if key == "openapi":
+                spec: dict[str, list[tuple[str, int]]] = {}
+                if value:
+                    _inline(value, spec, "paths", no)
+                cfg.openapi += spec.get("paths", [])
+                continue
             if key not in ("outer", "exclude_outer"):
                 cfg.notes.append(f"{path}:{no}: unknown key '{key}' ignored")
                 top = None
@@ -98,6 +109,8 @@ def parse_repo_config(text: str, path: str = CONFIG_FILES[0]) -> RepoConfig:
                 _inline(value, target, "paths", no)
             continue
         if target is None:
+            if top == "openapi":
+                cfg.notes.append(f"{path}:{no}: openapi takes a list of file paths; '{key}' ignored")
             continue
         if key not in CONFIG_KEYS:
             cfg.notes.append(f"{path}:{no}: unknown key '{top}.{key}' ignored (use {', '.join(CONFIG_KEYS)})")
@@ -319,7 +332,9 @@ def packages(root: Path, files: set[str]) -> list[PackageInfo]:
 
 
 def scan_surface(root: Path, files: set[str]) -> RepoSurface:
-    return RepoSurface(read_config(root, files), web_routes(root, files), packages(root, files))
+    cfg = read_config(root, files)
+    specs, notes = read_api_specs(root, files, cfg.openapi)
+    return RepoSurface(cfg, web_routes(root, files), packages(root, files), specs, notes)
 
 
 __all__ = ["parse_repo_config", "packages", "read_config", "scan_surface", "web_routes"]

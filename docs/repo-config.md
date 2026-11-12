@@ -18,16 +18,28 @@ exclude_outer:           # drop automatically detected outer interfaces
   paths: [legacy/**]
   routes: [/api/internal/**]
   packages: [shop-dev-tools]
+openapi:                 # committed OpenAPI documents to diff, besides openapi.json / swagger.json found by name
+  - services/billing/schema/api-v1.json
 ```
 
 - Globs: `*` matches within one path segment, `**` any depth (`**/x` also matches `x`); routes match with or without the trailing slash.
-- Lists may be block (`- item`) or inline (`[a, b]`); a bare list directly under `outer:` means `paths`.
+- Lists may be block (`- item`) or inline (`[a, b]`); a bare list directly under `outer:` means `paths`; `openapi:` takes paths or globs.
 - Interfaces declared here are marked `detected_by: config`; their evidence cites the line in this file.
 
 What is detected without configuration (`backend/src/pr_explorer/domain/services/rings.py`):
 
 - **HTTP API** — DRF views (APIView / ViewSet / `@api_view`) and routes under `/api` or with an `api` path segment
   (`API_PREFIXES`, `API_SEGMENT`); contract = allowed HTTP methods + serializer fields (read-only / required).
+- **Django Ninja** — `@api.get/post/put/patch/delete(...)` / `@router.<method>(...)` on a `NinjaAPI()` / `Router()`
+  instance; the path joins the `path("api/", api.urls)` prefix, `add_router()` prefixes and the operation path. One
+  interface per operation; contract = the handler's parameters (query / path / body, required or not) and the fields of
+  its schema classes (`response=`, body schemas, `Query[FilterSchema]`).
+- **Committed OpenAPI documents** — `openapi.json|yaml|yml` / `swagger.json|yaml|yml` at any depth (outside vendored
+  and build directories) plus `openapi:` above. Each operation is merged into the route it describes (same method + path,
+  or Ninja's default operationId) and its document wins: removed operation / parameter / field, a parameter or request
+  field that becomes required, a parameter that moves → breaking; added operation, optional parameter or field, response
+  field → compatible; type changes → needs confirmation. Evidence = the document line. YAML documents need PyYAML
+  (not a dependency; skipped and noted when it is missing).
 - **Web app routes** — Next.js `pages/` and `app/**/page.*`, SvelteKit `src/routes/**/+page.svelte`, Nuxt `pages/`,
   and `path: "…"` entries in router files (file name contains "route").
 - **Published packages** — `package.json` not marked `"private": true` (or with `publishConfig`), `pyproject.toml` /

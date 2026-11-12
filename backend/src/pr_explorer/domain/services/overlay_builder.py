@@ -14,12 +14,19 @@ from ..model.document import (
 )
 from ..model.finding import Finding
 from ..model.graph import Graph, SideGraph
-from .flow_steps import build_timeline, diff_steps
+from ..model import ids
+from .flow_steps import FOCUS_REASON, MAX_DEPTH, build_timeline, diff_steps
 from .system_map_builder import component_for
-from .system_structure import Structure
+from .system_structure import Structure, reverse_reach
 
 IMPACT_RANK = {"direct": 0, "evidence_supported": 1, "confirmed_dependency": 2, "potential": 3, "unknown": 4}
 MAX_RELATED_FLOWS = 60
+# Flows a PR touches are found by walking the call graph backwards from the changed code to the entry points, nearest
+# first. The walk goes as deep as a flow's steps can show (MAX_DEPTH) and stops at TOUCH_MAX_NODES callers; at most
+# TOUCH_MAX_BUILT touched flows are rebuilt on base and head (a change in a hub helper reaches hundreds of them).
+TOUCH_MAX_DEPTH = MAX_DEPTH
+TOUCH_MAX_NODES = 20_000
+TOUCH_MAX_BUILT = 150
 MAX_COMPONENT_IMPACTS = 300
 
 
@@ -178,30 +185,62 @@ class OverlayBuilder:
             s.entity_id = self.entity_ref(s.entity_id)
             s.component_ids = list(dict.fromkeys(c for c in (self.comp_ref(x) for x in s.component_ids) if c))
 
-    def flow_changes(self, base_sg: SideGraph, head_sg: SideGraph) -> tuple[list[FlowChange], dict[str, set[str]], bool]:
+    def touched_flows(self, base_sg: SideGraph, head_sg: SideGraph) -> tuple[dict[str, int], set[str], list[str]]:
+        """Flow id -> distance (call edges) from its entry point to the nearest changed code, on either side, plus every
+        node that reaches changed code and notes on the bounds that were hit. Added / removed flows count as distance 0;
+        the forward reach of the map's structure (bounded per entry point) is kept as a fallback."""
+        dist: dict[str, int] = {}
+        inside: set[str] = set()
+        notes: list[str] = []
+        for sg, st in ((base_sg, self.b), (head_sg, self.h)):
+            depth, capped = reverse_reach(sg, self.changed & set(sg.nodes), TOUCH_MAX_DEPTH, TOUCH_MAX_NODES)
+            inside |= set(depth)
+            if capped and not notes:
+                notes.append(f"backward walk from the changed code stopped at {TOUCH_MAX_DEPTH} calls / {TOUCH_MAX_NODES} "
+                             "callers: entry points further away are not compared")
+            for epid, fact in st.facts.items():
+                d = min((x for x in (depth.get(fact.id), depth.get(fact.handler_id or "")) if x is not None), default=None)
+                fid = ids.flow_id(epid)
+                if d is None and any(x in self.changed for x in st.reach.get(fid, [])):
+                    d = TOUCH_MAX_DEPTH + 1
+                if d is not None:
+                    dist[fid] = min(d, dist.get(fid, d))
+        for fid in set(self.b.lite_flows) ^ set(self.h.lite_flows):
+            dist[fid] = 0
+        return dist, inside, notes
+
+    def flow_changes(self, base_sg: SideGraph, head_sg: SideGraph) -> tuple[list[FlowChange], dict[str, set[str]], list[str]]:
+        """Flows the PR touches, rebuilt on base and head (built on demand: most are outside the map's flow budget).
+        The third value holds notes on the bounds that were hit (empty: every touched flow was compared)."""
         out: list[FlowChange] = []
         flow_nodes: dict[str, set[str]] = {}
-        truncated = False
-        for fid in sorted(set(self.b.lite_flows) | set(self.h.lite_flows)):
+        dist, inside, notes = self.touched_flows(base_sg, head_sg)
+        order = sorted(dist, key=lambda f: (dist[f], f))
+        built = unchanged = 0
+        for n, fid in enumerate(order):
             in_b, in_h = fid in self.b.lite_flows, fid in self.h.lite_flows
             lite = self.h.lite_flows[fid] if in_h else self.b.lite_flows[fid]
             epid = lite.entry_point_id
-            fact = (self.h.facts if in_h else self.b.facts)[epid]
-            touched = (not in_b or not in_h or fact.id in self.changed
-                       or any(x in self.changed for x in self.b.reach.get(fid, []))
-                       or any(x in self.changed for x in self.h.reach.get(fid, [])))
-            if not touched:
-                continue
             if in_b and fid not in self.mi.flows:
                 continue  # map built differently (should not happen for the same analyzer version)
-            if len(out) >= MAX_RELATED_FLOWS:
-                truncated = True
+            if len(out) >= MAX_RELATED_FLOWS or built >= TOUCH_MAX_BUILT:
+                notes.append(f"{len(order)} entry points reach the changed code; the {n} nearest were compared "
+                             f"({len(out)} flow change(s) shown, at most {MAX_RELATED_FLOWS})")
                 break
-            b_tl = build_timeline(base_sg, self.b, epid, fid) if in_b else None
-            h_tl = build_timeline(head_sg, self.h, epid, fid) if in_h else None
-            steps = diff_steps(b_tl.steps if b_tl else [], h_tl.steps if h_tl else [], self.changed)
+            built += 1
+            b_tl = build_timeline(base_sg, self.b, epid, fid, self.changed) if in_b else None
+            h_tl = build_timeline(head_sg, self.h, epid, fid, self.changed) if in_h else None
+            steps = diff_steps(b_tl.steps if b_tl else [], h_tl.steps if h_tl else [], self.changed, inside)
             status = "added" if not in_b else ("removed" if not in_h else "modified")
+            focused = False
             if status == "modified" and all(s.step_change_status == "unchanged" for s in steps):
+                # the change lies beyond the flow's step limits: walk only the calls that lead to it
+                b_tl = build_timeline(base_sg, self.b, epid, fid, self.changed, inside)
+                h_tl = build_timeline(head_sg, self.h, epid, fid, self.changed, inside)
+                steps = diff_steps(b_tl.steps, h_tl.steps, self.changed, inside)
+                focused = True
+            if status == "modified" and all(s.step_change_status == "unchanged" for s in steps):
+                unchanged += 1
                 continue
             raw: set[str] = set()
             self._remap(steps, raw)
@@ -214,6 +253,8 @@ class OverlayBuilder:
             assert tl is not None
             static = [t for t in (b_tl, h_tl) if t is not None and t.mode == "static_flow"]
             mode, reason = ("static_flow", static[0].mode_reason) if static else ("animation", tl.mode_reason)
+            if focused:
+                reason = FOCUS_REASON + (f"; {reason}" if reason else "")
             ev = list(dict.fromkeys(e for s in steps if s.step_change_status != "unchanged" for e in s.evidence_refs[:1]))[:10]
             if status == "added":
                 ep = self.h.entry_points[epid]
@@ -229,7 +270,10 @@ class OverlayBuilder:
                 self._add_ha(self.ha.flows, Flow(fid, lite.technical_name, epid, caps, ents,
                                                  Timeline(mode, head_steps, reason), lite.evidence_refs))
             out.append(FlowChange(fid, status, mode, steps, ev or list(lite.evidence_refs), reason))
-        return out, flow_nodes, truncated
+        if unchanged:
+            notes.append(f"{unchanged} touched flow(s) show no step difference (the change is beyond their step limits "
+                         "or does not alter a business step)")
+        return out, flow_nodes, notes
 
     # ---------- impacts ----------
     def impacts(self, flow_changes: list[FlowChange], diff_ev: dict[str, str]) -> list[Impact]:

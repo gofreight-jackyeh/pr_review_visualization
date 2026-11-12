@@ -2,8 +2,11 @@
 interface is, the less it should change; changes should stay inner. Pure.
 
 Detection (one side; the system map lists the base side):
-  outer   http_api        Django / DRF routes that are DRF views or sit under an API path (API_PREFIXES / API_SEGMENTS);
-                          contract = allowed HTTP methods + the fields of the serializers the view uses (when resolvable)
+  outer   http_api        Django / DRF / Django Ninja routes that are API views or sit under an API path (API_PREFIXES /
+                          API_SEGMENTS); contract = allowed HTTP methods + the fields of the serializers the view uses
+                          (when resolvable), or a Ninja operation's parameters and schema classes; plus every operation
+                          of a committed OpenAPI document (RepoSurface.api_specs), merged into the route it describes
+                          (same method + path, or Ninja's default operationId) — the document is the contract then
           web_route       front-end pages / routes (RepoSurface.web_routes)
           sdk_export      top-level exports of published packages (RepoSurface.packages)
           outbound_format files that shape data leaving the system (OUTBOUND_PATTERNS, or `.pr-explorer.yml outer.paths`)
@@ -16,6 +19,10 @@ Diff (PR overlay): base vs head contracts → one `interface_change` check per c
 removed route / export / module, removed or renamed field, new required field or parameter, removed HTTP method,
 changed task signature → breaking (verified); a change whose effect cannot be decided statically → unknown
 (needs confirmation). Verdict: compatible → follows, breaking → violates, unknown → unclear.
+OpenAPI / Ninja operations (OP_RULES): removed operation, parameter or request / response field, a parameter or request
+field that becomes required, a parameter that moves (query → path) → breaking; added operation, optional parameter or
+field, response field, something that becomes optional in the request → compatible; type changes and a response field
+that may now be missing → unknown.
 """
 
 from __future__ import annotations
@@ -218,6 +225,52 @@ class _Graph:
         return out
 
 
+    def schema_fields(self, sid: str | None, depth: int = 0) -> dict[str, dict] | None:
+        """Fields of a pydantic / Ninja schema class (inherited ones included) → {required, type}; None when not
+        resolvable statically (ModelSchema fields come from the model)."""
+        n = self.sg.nodes.get(sid or "")
+        spec = n.meta.get("schema") if n is not None else None
+        if spec is None or spec.get("model_schema") or depth > 5:
+            return None
+        out: dict[str, dict] = {}
+        for b in self.inherits.get(n.id, []):
+            if self.sg.nodes.get(b) is not None and self.sg.nodes[b].meta.get("schema") is not None:
+                got = self.schema_fields(b, depth + 1)
+                if got is None:
+                    return None
+                out.update(got)
+        out.update(spec["fields"])
+        return out
+
+    def ninja_shape(self, handler: str | None) -> dict | None:
+        """A Ninja operation's contract in the OpenAPI operation shape (see ApiOperation): params, request, response."""
+        n = self.sg.nodes.get(handler or "")
+        meta = n.meta.get("ninja") if n is not None else None
+        if meta is None:
+            return None
+        params = {k: dict(v) for k, v in meta["params"].items()}
+        for pname, sid in meta["query_schemas"].items():
+            fields = self.schema_fields(sid)
+            if fields is None:
+                params[pname] = {"in": "query", "required": None, "type": "unresolved schema"}
+            else:
+                params.update({f: {"in": "query", "required": o["required"], "type": o["type"]} for f, o in fields.items()})
+        body = meta["body"]
+        request: dict | None = {}
+        if len(body) == 1:
+            request = self.schema_fields(next(iter(body.values())))
+        elif body:  # several body parameters: Ninja nests each under its name
+            request = {}
+            for pname, sid in body.items():
+                fields = self.schema_fields(sid)
+                if fields is None:
+                    request = None
+                    break
+                request.update({f"{pname}.{f}": o for f, o in fields.items()})
+        response = self.schema_fields(meta["response"]) if meta["response_declared"] else None
+        return {"params": params, "request": request, "response": response}
+
+
 def _signature(n) -> dict | None:
     sig = n.meta.get("signature") if n is not None else None
     if sig is None:
@@ -293,11 +346,17 @@ def detect_interfaces(sg: SideGraph, st: Structure, surface: RepoSurface, config
         text = (_t(lang, f"{' '.join(methods) if methods else 'HTTP'} {fact.label}; fields: ", f"{' '.join(methods) if methods else 'HTTP'} {fact.label}；欄位：")
                 + (", ".join(shown[:20]) if resolved else _t(lang, "not resolvable statically", "無法靜態判定"))
                 + (_t(lang, f"; returns a file with {len(cols)} column key(s)", f"；回傳檔案，{len(cols)} 個欄位鍵") if files is not None else ""))
-        put(Interface(f"iface:{epid}", fact.label, "outer", "http_api", ep.capability_id, "config" if hit else "static",
+        ninja = g.ninja_shape(fact.handler_id)
+        name = f"{' '.join(methods or [])} {fact.label}".strip() if ninja is not None else fact.label  # one per operation
+        put(Interface(f"iface:{epid}", name, "outer", "http_api", ep.capability_id, "config" if hit else "static",
                       [CodeRef(r.side, r.path, r.start_line, r.end_line) for r in refs[:4]], evs[:6], entry_point_id=epid,
                       description=desc(text, evs),
-                      meta={"contract": {"methods": methods, "serializers": fields if resolved else None, "file_columns": files},
-                            "handler": fact.handler_id, "watch": [fact.handler_id or "", *sers]}))
+                      meta={"contract": {"methods": methods, "serializers": fields if resolved else None, "file_columns": files,
+                                         "ninja": ninja},
+                            "handler": fact.handler_id, "route": fact.label, "watch": [fact.handler_id or "", *sers]}))
+
+    # ---- outer: committed OpenAPI documents (merged into the route each operation describes) ----
+    _api_specs(out, sg, g, st, surface, lang, ev, excluded, put)
 
     # ---- outer: web app routes ----
     for w in surface.web_routes:
@@ -522,7 +581,17 @@ def _compare(b: Interface, h: Interface | None, head_sg: SideGraph, changed_node
         return "removed", "breaking", _t(lang, f"{b.technical_name} removed", f"{b.technical_name} 已移除")
     else:
         hc = h.meta.get("contract", {})
-        if b.kind == "http_api":
+        if b.kind == "http_api":  # the committed OpenAPI document first, then the Ninja signature, then the code
+            bo, ho, bn, hn = bc.get("openapi"), hc.get("openapi"), bc.get("ninja"), hc.get("ninja")
+            if bo is not None and ho is not None:
+                items += openapi_changes(bo, ho, lang)
+            if not items and bn is not None and hn is not None:
+                items += op_changes(bn, hn, lang)
+                if not items and bn["response"] is not None and hn["response"] is not None:
+                    return None  # a declared, resolvable Ninja contract that did not change: the body is behaviour
+            if not items and not (b.meta.get("handler") or h.meta.get("handler")):
+                return None  # an operation known only from the OpenAPI document, which did not change
+        if b.kind == "http_api" and not items:
             bm, hm = bc.get("methods"), hc.get("methods")
             if bm and hm:
                 items += [("breaking", _t(lang, f"HTTP method {m} no longer accepted", f"不再接受 HTTP {m}")) for m in bm if m not in hm]
@@ -599,6 +668,157 @@ def export_changes(b: dict[str, dict], h: dict[str, dict], changed_paths: set[st
     return out
 
 
+def _norm_route(route: str) -> str:
+    """/api/items/{id}/, /api/items/<int:pk>/ and /api/items/{int:pk} → /api/items/{}"""
+    r = re.sub(r"\(\?P<[^>]+>[^)]*\)|\{[^}]*\}|<[^>]*>", "{}", route.split("?", 1)[0])
+    return "/" + r.strip("/")
+
+
+def _where(lang: str, w: str) -> str:
+    return _t(lang, f"{w} parameter", {"query": "查詢參數", "path": "路徑參數", "header": "標頭參數", "cookie": "Cookie 參數"}.get(w, "參數"))
+
+
+def op_changes(b: dict, h: dict, lang: str) -> list[tuple[str, str]]:
+    """One API operation, base vs head (OpenAPI operation shape: params / request / response). Rules in the module doc."""
+    out: list[tuple[str, str]] = []
+    bp, hp = b.get("params") or {}, h.get("params") or {}
+    for n in sorted(set(bp) - set(hp)):
+        out.append(("breaking", _t(lang, f"{_where(lang, bp[n]['in'])} {n} removed", f"移除{_where(lang, bp[n]['in'])} {n}")))
+    for n in sorted(set(hp) - set(bp)):
+        o = hp[n]
+        if o["required"]:
+            out.append(("breaking", _t(lang, f"new required {_where(lang, o['in'])} {n}", f"新增必填{_where(lang, o['in'])} {n}")))
+        elif o["required"] is None:
+            out.append(("unknown", _t(lang, f"new {_where(lang, o['in'])} {n} (required or not is unknown)",
+                                      f"新增{_where(lang, o['in'])} {n}（無法判定是否必填）")))
+        else:
+            out.append(("compatible", _t(lang, f"new optional {_where(lang, o['in'])} {n}", f"新增選填{_where(lang, o['in'])} {n}")))
+    for n in sorted(set(bp) & set(hp)):
+        x, y = bp[n], hp[n]
+        if x["in"] != y["in"]:
+            out.append(("breaking", _t(lang, f"parameter {n} moved from {x['in']} to {y['in']}", f"參數 {n} 從 {x['in']} 移到 {y['in']}")))
+        elif y["required"] and not x["required"]:
+            out.append(("breaking", _t(lang, f"{_where(lang, y['in'])} {n} is now required", f"{_where(lang, y['in'])} {n} 改為必填")))
+        elif x["required"] and y["required"] is False:
+            out.append(("compatible", _t(lang, f"{_where(lang, y['in'])} {n} is now optional", f"{_where(lang, y['in'])} {n} 改為選填")))
+        elif x.get("type") != y.get("type"):
+            out.append(("unknown", _t(lang, f"type of {n} changed ({x.get('type')} → {y.get('type')})",
+                                      f"參數 {n} 的型別改變（{x.get('type')} → {y.get('type')}）")))
+    for part, zh, en in (("request", "請求", "request"), ("response", "回應", "response")):
+        bf, hf = b.get(part), h.get(part)
+        if bf == hf:
+            continue
+        if bf is None or hf is None:
+            out.append(("unknown", _t(lang, f"{en} body not resolvable on one side", f"{zh}內容在其中一個版本無法靜態判定")))
+            continue
+        for f in sorted(set(bf) - set(hf)):
+            out.append(("breaking", _t(lang, f"{en} field {f} removed", f"移除{zh}欄位 {f}")))
+        for f in sorted(set(hf) - set(bf)):
+            if part == "request" and hf[f]["required"]:
+                out.append(("breaking", _t(lang, f"new required request field {f}", f"新增必填請求欄位 {f}")))
+            else:
+                out.append(("compatible", _t(lang, f"new {'optional ' if part == 'request' else ''}{en} field {f}",
+                                             f"新增{'選填' if part == 'request' else ''}{zh}欄位 {f}")))
+        for f in sorted(set(bf) & set(hf)):
+            x, y = bf[f], hf[f]
+            if part == "request" and y["required"] and not x["required"]:
+                out.append(("breaking", _t(lang, f"request field {f} is now required", f"請求欄位 {f} 改為必填")))
+            elif part == "request" and x["required"] and not y["required"]:
+                out.append(("compatible", _t(lang, f"request field {f} is now optional", f"請求欄位 {f} 改為選填")))
+            elif part == "response" and x["required"] and not y["required"]:
+                out.append(("unknown", _t(lang, f"response field {f} may now be missing", f"回應欄位 {f} 可能不再出現")))
+            elif x.get("type") != y.get("type"):
+                out.append(("unknown", _t(lang, f"type of {en} field {f} changed ({x.get('type')} → {y.get('type')})",
+                                          f"{zh}欄位 {f} 的型別改變（{x.get('type')} → {y.get('type')}）")))
+    return out
+
+
+def openapi_changes(b: dict[str, dict], h: dict[str, dict], lang: str) -> list[tuple[str, str]]:
+    """{METHOD: operation} per side (an interface may carry several operations of one route)."""
+    out: list[tuple[str, str]] = []
+    for m in sorted(set(b) - set(h)):
+        out.append(("breaking", _t(lang, f"operation {m} removed from the OpenAPI document", f"OpenAPI 文件移除了 {m} 操作")))
+    for m in sorted(set(h) - set(b)):
+        out.append(("compatible", _t(lang, f"operation {m} added", f"新增 {m} 操作")))
+    for m in sorted(set(b) & set(h)):
+        out += [(c, f"{m}: {d}") if len(b) > 1 else (c, d) for c, d in op_changes(b[m], h[m], lang)]
+    return out
+
+
+def _op_shape(op) -> dict:
+    return {"params": op.params, "request": op.request, "response": op.response}
+
+
+def _spec_cap(st: Structure, spec_path: str, route: str, matched: list[str]) -> str | None:
+    """Capability of an operation no route describes: the URL segment naming a capability directory, else the
+    capability holding the document, else the one most of the document's matched operations belong to, else the only
+    non-engineering capability. None (operation not listed) otherwise."""
+    by_dir: dict[str, str] = {}
+    for c in st.capabilities.values():
+        by_dir.setdefault(c.path.rsplit("/", 1)[-1].lower().replace("-", "_"), c.id)
+    for seg in route.strip("/").split("/"):
+        cid = by_dir.get(seg.lower().replace("-", "_"))
+        if cid and not seg.startswith("{"):
+            return cid
+    cid = st.caps.cap_id(spec_path)
+    if cid in st.capabilities:
+        return cid
+    if matched:
+        return max(sorted(set(matched)), key=matched.count)
+    product = [c.id for c in st.capabilities.values() if c.category != "engineering"]
+    return product[0] if len(product) == 1 else None
+
+
+def _api_specs(out: InterfaceSet, sg: SideGraph, g: _Graph, st: Structure, surface: RepoSurface, lang: str,
+               ev: Callable, excluded: Callable, put: Callable) -> None:
+    routes: dict[str, list[Interface]] = {}
+    by_op_id: dict[str, Interface] = {}
+    for i in out.interfaces.values():
+        if i.kind != "http_api":
+            continue
+        routes.setdefault(_norm_route(i.meta.get("route") or i.technical_name), []).append(i)
+        hn = sg.nodes.get(i.meta.get("handler") or "")
+        dotted = hn.meta.get("dotted") if hn is not None else None
+        if dotted:
+            parts = dotted.split(".")
+            for k in range(len(parts)):  # Ninja's default operationId = "<module>_<function>" with dots as "_"
+                by_op_id.setdefault("_".join(parts[k:]), i)
+    for spec in surface.api_specs:
+        if excluded("paths", spec.path):
+            continue
+        matched: list[str] = []
+        pending: list = []
+        for op in spec.operations:
+            if excluded("routes", op.route):
+                continue
+            cands = routes.get(_norm_route(op.route), [])
+            hit = (next((i for i in cands if op.method in (i.meta["contract"].get("methods") or [])), None)
+                   or next((i for i in cands if not i.meta["contract"].get("methods")), None)
+                   or (by_op_id.get(op.operation_id) if op.operation_id else None))
+            e = ev("doc", spec.path, op.line, f"OpenAPI document {spec.path}:{op.line} declares {op.method} {op.route}"
+                   + (f" (operationId {op.operation_id})" if op.operation_id else ""), "openapi", op.method, op.route)
+            ref = CodeRef(sg.side, spec.path, op.line)
+            if hit is not None:
+                hit.meta["contract"].setdefault("openapi", {})[op.method] = _op_shape(op)
+                matched.append(hit.capability_id)
+                if ref.path not in {r.path for r in hit.refs}:
+                    hit.refs.insert(1, ref)
+                    hit.evidence_refs.insert(1, e)
+            else:
+                pending.append((op, e, ref))
+        for op, e, ref in pending:
+            cid = _spec_cap(st, spec.path, op.route, matched)
+            if cid is None:
+                continue
+            fields = sorted({*op.params, *(op.request or {})})
+            text = (f"{op.method} {op.route}" + _t(lang, f" (OpenAPI document {spec.path}); parameters / request fields: ",
+                                                   f"（OpenAPI 文件 {spec.path}）；參數 / 請求欄位：")
+                    + (", ".join(fields[:20]) or _t(lang, "none", "無")))
+            put(Interface(f"iface:openapi:{op.method} {op.route}", f"{op.method} {op.route}", "outer", "http_api", cid, "static",
+                          [ref], [e], description=Text(text, "static", [e]),
+                          meta={"contract": {"openapi": {op.method: _op_shape(op)}}, "watch": []}))
+
+
 KIND_LABEL = {
     "http_api": ("API route", "API 路由"), "web_route": ("web page route", "網頁路由"), "sdk_export": ("package export", "套件匯出"),
     "outbound_format": ("outbound format", "對外格式"), "module_api": ("module API", "模組介面"), "task": ("background task", "背景工作"),
@@ -671,4 +891,4 @@ def _check(i: Interface, ref: str, change: str, compat: str, detail: str, cap_re
 
 
 __all__ = ["API_PREFIXES", "API_SEGMENT", "InterfaceSet", "MAX_MODULE_INTERFACES", "OUTBOUND_PATTERNS", "detect_interfaces",
-           "diff_interfaces", "field_changes", "glob_match", "is_api_route", "sig_change"]
+           "diff_interfaces", "field_changes", "glob_match", "is_api_route", "op_changes", "openapi_changes", "sig_change"]

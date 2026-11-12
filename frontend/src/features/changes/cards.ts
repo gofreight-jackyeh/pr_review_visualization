@@ -51,6 +51,16 @@ export function changeCards(m: Model): ChangeCard[] {
 }
 
 /** The backend's fallback without Claude: step names strung into a before/after — not a business description. */
+/** Changed files grouped by module (their directory), largest first — what to read when no flow shows the change. */
+export function changedModules(m: Model): { dir: string; files: ChangedFile[] }[] {
+  const by = new Map<string, ChangedFile[]>()
+  for (const f of m.overlay?.changes.files ?? []) {
+    const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "."
+    by.set(dir, [...(by.get(dir) ?? []), f])
+  }
+  return [...by].map(([dir, files]) => ({ dir, files })).sort((a, b) => b.files.length - a.files.length || a.dir.localeCompare(b.dir))
+}
+
 export const isStaticBehavior = (bc: BehaviorChange) => bc.after.source === "static"
 
 export interface StaticGroup { capId: string; steps: OverlayStep[]; files: ChangedFile[] }

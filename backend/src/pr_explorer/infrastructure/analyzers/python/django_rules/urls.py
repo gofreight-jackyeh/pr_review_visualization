@@ -14,24 +14,38 @@ class RouteEntry:
     line: int
     end_line: int
     view_expr: ast.expr | None  # expression naming the view
-    include_target: ast.expr | None
+    include_target: ast.expr | None  # module string / module / pattern-list variable mounted under `pattern`
     name: str | None
     is_regex: bool
+    list_name: str = "urlpatterns"  # the module-level pattern list this entry belongs to
+    display: str | None = None  # pattern with inline include() prefixes already joined and cleaned
 
 
 def _const_str(node: ast.expr | None) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
-def _pattern_lists(tree: ast.Module) -> list[ast.expr]:
-    out: list[ast.expr] = []
+def _route_call(el: ast.expr) -> bool:
+    if not isinstance(el, ast.Call) or not el.args:
+        return False
+    fname = el.func.id if isinstance(el.func, ast.Name) else (el.func.attr if isinstance(el.func, ast.Attribute) else "")
+    return fname in ROUTE_FUNCS
+
+
+def _pattern_lists(tree: ast.Module) -> list[tuple[str, ast.expr]]:
+    """(name, value) of `urlpatterns` and of every other module-level list holding path()/re_path()/url() calls
+    (`internal_api_urlpatterns = [...]`, mounted elsewhere with `include(internal_api_urlpatterns)`)."""
+    out: list[tuple[str, ast.expr]] = []
     for stmt in tree.body:
-        if isinstance(stmt, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "urlpatterns" for t in stmt.targets):
-            out.append(stmt.value)
-        elif isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name) and stmt.target.id == "urlpatterns":
-            out.append(stmt.value)
-        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.target.id == "urlpatterns" and stmt.value:
-            out.append(stmt.value)
+        if isinstance(stmt, ast.Assign):
+            names, value = [t.id for t in stmt.targets if isinstance(t, ast.Name)], stmt.value
+        elif isinstance(stmt, (ast.AugAssign, ast.AnnAssign)) and isinstance(stmt.target, ast.Name) and stmt.value:
+            names, value = [stmt.target.id], stmt.value
+        else:
+            continue
+        for n in names:
+            if n == "urlpatterns" or any(_route_call(el) for el in _elements(value)):
+                out.append((n, value))
     return out
 
 
@@ -43,25 +57,57 @@ def _elements(value: ast.expr) -> list[ast.expr]:
     return [value]
 
 
+def _clean(pattern: str, is_regex: bool) -> str:
+    return pattern.lstrip("^").rstrip("$") if is_regex else pattern
+
+
+def include_targets(expr: ast.expr | None) -> list[ast.expr]:
+    """What an include() argument mounts: `"app.urls"`, `module`, `pattern_list`, `(pattern_list, "ns")`, `a + b`."""
+    if expr is None:
+        return []
+    if isinstance(expr, ast.Tuple) and expr.elts:  # (patterns, app_namespace)
+        return include_targets(expr.elts[0])
+    if isinstance(expr, ast.BinOp):
+        return include_targets(expr.left) + include_targets(expr.right)
+    return [expr]
+
+
+def _entries(els: list[ast.expr], list_name: str, outer: str, outer_disp: str, depth: int) -> list[RouteEntry]:
+    entries: list[RouteEntry] = []
+    for el in els:
+        if isinstance(el, (ast.Name, ast.Attribute)) and not (isinstance(el, ast.Attribute) and el.attr == "urls"):
+            # `urlpatterns = [...] + other_list`: the other list is mounted here with no prefix
+            entries.append(RouteEntry(outer, el.lineno, el.end_lineno or el.lineno, None, el, None, False, list_name,
+                                      outer_disp or None))
+            continue
+        if not _route_call(el):
+            continue
+        assert isinstance(el, ast.Call)
+        pattern = _const_str(el.args[0])
+        if pattern is None:
+            continue
+        is_regex = getattr(el.func, "id", getattr(el.func, "attr", None)) != "path"
+        target = el.args[1] if len(el.args) > 1 else None
+        name = next((_const_str(k.value) for k in el.keywords if k.arg == "name"), None)
+        full, disp = outer + pattern, outer_disp + _clean(pattern, is_regex)
+        nested = outer != ""
+        if isinstance(target, ast.Call) and getattr(target.func, "id", getattr(target.func, "attr", None)) == "include":
+            for inc in include_targets(target.args[0] if target.args else None):
+                if isinstance(inc, (ast.List, ast.Tuple)) and depth < 6:  # include([path(...), ...]): inline patterns
+                    entries += _entries(list(inc.elts), list_name, full, disp, depth + 1)
+                else:
+                    entries.append(RouteEntry(full, el.lineno, el.end_lineno or el.lineno, None, inc, name, is_regex,
+                                              list_name, disp if nested else None))
+            continue
+        entries.append(RouteEntry(full, el.lineno, el.end_lineno or el.lineno, target, None, name, is_regex, list_name,
+                                  disp if nested else None))
+    return entries
+
+
 def extract_routes(tree: ast.Module) -> list[RouteEntry]:
     entries: list[RouteEntry] = []
-    for value in _pattern_lists(tree):
-        for el in _elements(value):
-            if not isinstance(el, ast.Call):
-                continue
-            fname = el.func.id if isinstance(el.func, ast.Name) else (el.func.attr if isinstance(el.func, ast.Attribute) else "")
-            if fname not in ROUTE_FUNCS or not el.args:
-                continue
-            pattern = _const_str(el.args[0])
-            if pattern is None:
-                continue
-            target = el.args[1] if len(el.args) > 1 else None
-            name = next((_const_str(k.value) for k in el.keywords if k.arg == "name"), None)
-            include = None
-            if isinstance(target, ast.Call) and getattr(target.func, "id", getattr(target.func, "attr", None)) == "include":
-                include = target.args[0] if target.args else None
-                target = None
-            entries.append(RouteEntry(pattern, el.lineno, el.end_lineno or el.lineno, target, include, name, fname != "path"))
+    for list_name, value in _pattern_lists(tree):
+        entries += _entries(_elements(value), list_name, "", "", 0)
     return entries
 
 
@@ -87,7 +133,7 @@ def extract_routers(tree: ast.Module) -> dict:
     if not router_vars:
         return {}
     mounts: dict[str, str] = {}
-    for value in _pattern_lists(tree):
+    for _name, value in _pattern_lists(tree):
         for el in _elements(value):
             if isinstance(el, ast.Attribute) and el.attr == "urls" and isinstance(el.value, ast.Name):
                 mounts.setdefault(el.value.id, "")
@@ -101,7 +147,5 @@ def extract_routers(tree: ast.Module) -> dict:
 
 
 def display_pattern(prefix: str, entry: RouteEntry) -> str:
-    p = entry.pattern
-    if entry.is_regex:
-        p = p.lstrip("^").rstrip("$")
+    p = entry.display if entry.display is not None else _clean(entry.pattern, entry.is_regex)
     return "/" + (prefix + p).lstrip("/")

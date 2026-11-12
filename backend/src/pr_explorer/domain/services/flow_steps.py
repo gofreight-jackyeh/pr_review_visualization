@@ -25,6 +25,7 @@ MAX_EXPANDED = 300
 MAX_COMPONENTS = 12
 ACTIONS = {"create", "read", "write", "delete"}
 STATUS_RANK = {"confirmed": 0, "possible": 1, "unknown": 2}
+FOCUS_REASON = "focused on the path to the changed code: calls that do not lead to it are left out"
 
 
 @dataclass
@@ -58,6 +59,8 @@ class _Walk:
     unordered: bool = False
     truncated: bool = False
     out_edges: dict | None = None
+    highlight: set[str] | frozenset = frozenset()  # functions that get a step of their own even inside one capability
+    focus: set[str] | None = None  # when set: outside highlighted code, only calls into these nodes are followed
 
     def add(self, r: _Raw) -> None:
         if not r.evidence:
@@ -101,22 +104,25 @@ class _Walk:
                     self.out_edges.setdefault(e.source, []).append(e)
         return self.out_edges
 
-    def visit(self, fn: str, conds: tuple[str, ...], status: str, cap: str, depth: int) -> None:
+    def visit(self, fn: str, conds: tuple[str, ...], status: str, cap: str, depth: int, free: bool = False) -> None:
         if fn in self.expanded or depth > MAX_DEPTH or len(self.expanded) >= MAX_EXPANDED:
             return
         self.expanded.add(fn)
+        free = free or self.focus is None or fn in self.highlight  # inside changed code everything is followed
         for f in self.facts(fn):
             c = conds + f.conditions
             s = "unknown" if status == "unknown" or f.confidence == "unknown" else "confirmed"
             if f.kind == "call":
+                if not free and not any(t in self.focus for t in f.target_ids):  # type: ignore[operator]
+                    continue
                 if f.confidence == "unknown":
                     self.add(_Raw("call", cap, [fn] + f.target_ids[:MAX_COMPONENTS - 1], f.label, "unknown", c, f.evidence_refs,
                                   anchor=f"dyn:{f.label}"))
                     for t in f.target_ids:
                         if t in self.sg.nodes and self.sg.nodes[t].kind != "external":
-                            self.descend(t, c, "unknown", cap, depth, f)
+                            self.descend(t, c, "unknown", cap, depth, f, free)
                 elif f.target_ids:
-                    self.descend(f.target_ids[0], c, s, cap, depth, f)
+                    self.descend(f.target_ids[0], c, s, cap, depth, f, free)
             elif f.kind == "query" and f.target_ids:
                 ent = self.st.entity_of_node.get(f.target_ids[0])
                 action = f.orm_action if f.orm_action in ACTIONS else "read"
@@ -132,17 +138,21 @@ class _Walk:
             elif f.kind == "raise":
                 self.add(_Raw("raise", cap, [fn], f.label, s, c, f.evidence_refs, anchor=f.label))
 
-    def descend(self, t: str, conds: tuple[str, ...], status: str, cap: str, depth: int, f: FlowStep) -> None:
+    def descend(self, t: str, conds: tuple[str, ...], status: str, cap: str, depth: int, f: FlowStep,
+                free: bool = True) -> None:
         node = self.sg.nodes.get(t)
-        if node is None or node.kind in ("model", "external"):
+        if node is None or node.kind in ("model", "external") or not (free or t in self.focus):  # type: ignore[operator]
             return
         tcap = self.st.node_cap.get(t, cap)
         if tcap != cap:
             self.add(_Raw("call", tcap, [t], f"{self.st.cap_name(cap)} → {self.st.cap_name(tcap)}: {self.label_of(t)}()", status,
                           conds, f.evidence_refs, anchor=t))
+        elif t in self.highlight:  # code a PR changed: its own step, so the flow shows where the change sits
+            self.add(_Raw("call", tcap, [t], f"{self.st.cap_name(cap)}: {self.label_of(t)}()", status, conds, f.evidence_refs,
+                          anchor=t))
         else:
             self.attach(cap, t)
-        self.visit(t, conds, status, tcap, depth + 1)
+        self.visit(t, conds, status, tcap, depth + 1, free)
 
 
 def _collapse(raw: list[_Raw]) -> list[_Raw]:
@@ -161,10 +171,14 @@ def _collapse(raw: list[_Raw]) -> list[_Raw]:
     return out
 
 
-def build_timeline(sg: SideGraph, st: Structure, epid: str, flow: str) -> Timeline:
+def build_timeline(sg: SideGraph, st: Structure, epid: str, flow: str, highlight: set[str] | frozenset = frozenset(),
+                   focus: set[str] | None = None) -> Timeline:
+    """`highlight`: functions (a PR's changed code) shown as their own step instead of folded into their caller's.
+    `focus`: nodes that reach the changed code; when given, calls outside it are skipped until the walk enters
+    highlighted code, so a long flow still reaches a change that lies beyond its step limits."""
     fact: EntryFact = st.facts[epid]
     ep = st.entry_points[epid]
-    w = _Walk(sg, st)
+    w = _Walk(sg, st, highlight=highlight, focus=focus)
     handler = ep.handler_component_id
     enter_label = f"{fact.label} → {w.label_of(handler)}" if handler and handler != fact.id else fact.label
     w.add(_Raw("enter", ep.capability_id, [handler] if handler else [], enter_label, "confirmed", (), [fact.evidence_id],
@@ -224,11 +238,12 @@ def _differs(b: Step, h: Step, changed: set[str]) -> bool:
             or any(c in changed for c in h.component_ids[:1] + b.component_ids[:1]))
 
 
-def diff_steps(base: list[Step], head: list[Step], changed: set[str]) -> list[Step]:
+def diff_steps(base: list[Step], head: list[Step], changed: set[str], inside: set[str] | frozenset = frozenset()) -> list[Step]:
     """Merged step sequence with step_change_status. Steps are matched on (kind, capability, entity, anchor) by LCS;
     within each unmatched gap, base/head steps with the same (kind, capability, entity) pair up as `changed`.
     A matched step is `changed` when its label/status/branch differs or its primary component changed in the PR.
-    Before view = every step except `added`; after view = every step except `removed`."""
+    Only when that finds nothing, a step that enqueues a task reaching changed code is `changed` (`inside`: nodes that
+    transitively reach the change). Before view = every step except `added`; after view = every step except `removed`."""
     pairs = _lcs([s.meta["key"] for s in base], [s.meta["key"] for s in head])
     out: list[Step] = []
 
@@ -258,6 +273,10 @@ def diff_steps(base: list[Step], head: list[Step], changed: set[str]) -> list[St
         if i < len(base) and j < len(head):
             emit(head[j], "changed" if _differs(base[i], head[j], changed) else "unchanged")
         bi, hi = i + 1, j + 1
+    if out and all(s.step_change_status == "unchanged" for s in out):
+        for s in out:
+            if s.kind == "emit" and any(c in inside for c in s.component_ids[:1]):
+                s.step_change_status = "changed"
     seen: dict[str, int] = {}
     for k, s in enumerate(out):
         s.order = k

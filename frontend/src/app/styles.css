@@ -312,3 +312,10 @@ button.ask-open.on { background: var(--accent); color: #fff; }
 .review-counts { color: var(--muted); margin-top: -4px; }
 .review-facts { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--line); }
 .review-facts h4 { margin: 14px 0 6px; }
+/* infrastructure-as-code repositories (widgets/workspace/InfraFiles.tsx) */
+.main-nav button.dim:not(.on) { color: var(--muted); font-size: .92rem; }
+.infra-notice { margin: 12px 24px 0; max-width: 872px; border: 1px solid #b9d1fb; border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 14px; background: #f4f8ff; }
+.infra-notice p { margin: 0 0 4px; }
+.infra-actions { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; } .infra-actions button.big { margin: 4px 0; }
+.infra-group h3 { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; } .infra-group .count { font-weight: 400; color: var(--muted); font-size: .95rem; }
+.infra-context-note { margin: 0; padding: 6px 16px; background: #fff; border-bottom: 1px solid var(--line); color: var(--muted); }

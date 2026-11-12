@@ -76,11 +76,13 @@ class RepoConfig:
     """`.pr-explorer.yml` at the repository root (optional). Each list holds (glob, line in the file).
 
     outer:          declare more outer (client-facing) interfaces; config wins over detection (detected_by=config)
-    exclude_outer:  drop detected outer interfaces (paths = file globs, routes = URL globs, packages = package names)"""
+    exclude_outer:  drop detected outer interfaces (paths = file globs, routes = URL globs, packages = package names)
+    openapi:        committed OpenAPI documents to diff (paths), in addition to the auto-detected file names"""
 
     path: str | None = None
     outer: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
     exclude_outer: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
+    openapi: list[tuple[str, int]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -114,7 +116,34 @@ class PackageInfo:
 
 
 @dataclass
+class ApiOperation:
+    """One operation of a committed OpenAPI / Swagger document, reduced to what clients depend on.
+
+    params:   name -> {"in": query|path|header|cookie, "required": bool, "type": str | None}
+    request:  JSON body fields -> {"required": bool, "type": str | None}; {} = no body; None = not resolvable
+    response: success-response fields (array responses: the item's fields), same shape; None = not resolvable"""
+
+    method: str  # GET | POST | ...
+    route: str  # the document's path key, e.g. /api/items/{id}
+    line: int
+    operation_id: str | None = None
+    params: dict[str, dict] = field(default_factory=dict)
+    request: dict[str, dict] | None = field(default_factory=dict)
+    response: dict[str, dict] | None = None
+
+
+@dataclass
+class ApiSpec:
+    path: str  # repository file
+    title: str
+    operations: list[ApiOperation] = field(default_factory=list)
+    configured_line: int | None = None  # declared in .pr-explorer.yml `openapi:` (line there)
+
+
+@dataclass
 class RepoSurface:
     config: RepoConfig = field(default_factory=RepoConfig)
     web_routes: list[WebRoute] = field(default_factory=list)
     packages: list[PackageInfo] = field(default_factory=list)
+    api_specs: list[ApiSpec] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # e.g. an OpenAPI document that could not be parsed

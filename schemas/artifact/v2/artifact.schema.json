@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pr-explorer.local/schemas/artifact/v2/artifact.schema.json",
-  "$comment": "2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
+  "$comment": "2.4.0 (2026-11-12): system.repo_kind (application | infrastructure). 2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
   "title": "PR Review Explorer Artifact v2",
   "description": "Two document kinds share one schema. system_map: the whole repository at one commit (cached per repo+commit, reused by every PR). pr_overlay: one PR laid over a system map. Structure comes from static analysis; Claude only writes Text items, each of which must cite evidence (spec v2 §5 Layer 7).",
   "oneOf": [
@@ -271,7 +271,7 @@
                    "flow_budget", "architecture_rules", "interfaces", "evidence", "semantic", "disclaimer"],
       "properties": {
         "kind": { "const": "system_map" },
-        "schema_version": { "const": "2.3.0" },
+        "schema_version": { "const": "2.4.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "system_map_id": { "$ref": "#/$defs/Id" },
         "generated_at": { "type": "string", "format": "date-time" },
@@ -282,7 +282,13 @@
         "commit_sha": { "$ref": "#/$defs/Sha" },
         "system": {
           "type": "object", "additionalProperties": false, "required": ["technical_name"],
-          "properties": { "technical_name": { "type": "string" }, "summary": { "$ref": "#/$defs/Text" } }
+          "properties": {
+            "technical_name": { "type": "string" }, "summary": { "$ref": "#/$defs/Text" },
+            "repo_kind": {
+              "enum": ["application", "infrastructure"],
+              "description": "infrastructure: no entry points and mostly Terraform / Helm / Kubernetes files (the UI leads with the PR summary, review focus and changed files by module). Absent before 2.4.0 = application."
+            }
+          }
         },
         "coverage": { "type": "array", "items": { "$ref": "#/$defs/Coverage" } },
         "domains": { "type": "array", "items": { "$ref": "#/$defs/Domain" } },
@@ -496,7 +502,7 @@
                    "findings", "architecture_checks", "evidence", "semantic", "walkthrough"],
       "properties": {
         "kind": { "const": "pr_overlay" },
-        "schema_version": { "const": "2.3.0" },
+        "schema_version": { "const": "2.4.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "overlay_id": { "$ref": "#/$defs/Id" },
         "system_map_id": { "$ref": "#/$defs/Id" },

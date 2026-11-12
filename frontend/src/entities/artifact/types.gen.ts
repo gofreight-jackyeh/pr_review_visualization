@@ -246,7 +246,7 @@ export type ArchCheck = {
 
 export interface SystemMap {
   kind: "system_map"
-  schema_version: "2.3.0"
+  schema_version: "2.4.0"
   analyzer_version: Version
   system_map_id: Id
   generated_at: string
@@ -258,6 +258,10 @@ export interface SystemMap {
   system: {
     technical_name: string
     summary?: Text
+    /**
+     * infrastructure: no entry points and mostly Terraform / Helm / Kubernetes files (the UI leads with the PR summary, review focus and changed files by module). Absent before 2.4.0 = application.
+     */
+    repo_kind?: "application" | "infrastructure"
   }
   coverage: Coverage[]
   domains: Domain[]
@@ -416,7 +420,7 @@ export interface SemanticStatus {
 }
 export interface PrOverlay {
   kind: "pr_overlay"
-  schema_version: "2.3.0"
+  schema_version: "2.4.0"
   analyzer_version: Version
   overlay_id: Id
   system_map_id: Id

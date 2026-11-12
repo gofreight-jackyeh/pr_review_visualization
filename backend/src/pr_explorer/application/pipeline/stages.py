@@ -349,7 +349,9 @@ class Pipeline:
                  + f"; interfaces {sum(i.ring == 'outer' for i in static.interfaces)} outer / "
                    f"{sum(i.ring == 'middle' for i in static.interfaces)} middle"
                  + (f" ({surface.config.path}" + (f": {'; '.join(surface.config.notes[:3])}" if surface.config.notes else "") + ")"
-                    if surface.config.path else ""))
+                    if surface.config.path else "")
+                 + (f"; {len(surface.api_specs)} OpenAPI document(s)" if surface.api_specs else "")
+                 + (f" ({'; '.join(surface.notes[:3])})" if surface.notes else ""))
         if not ctx.semantic_on:
             smap, path, _ = self._save_map(ctx, static, static, ws.base_files)
             doc = self._index_map(ctx, smap, path)
@@ -617,7 +619,7 @@ class Pipeline:
     # ------------------------------------------------------------------ L5 flows
     def stage_flows(self, ctx: Context) -> str:
         assert ctx.builder is not None
-        fcs, nodes, truncated = ctx.builder.flow_changes(ctx.sides["base"], ctx.sides["head"])
+        fcs, nodes, flow_notes = ctx.builder.flow_changes(ctx.sides["base"], ctx.sides["head"])
         ctx.flow_changes, ctx.flow_nodes = fcs, nodes
         by = {s: sum(1 for f in fcs if f.change_status == s) for s in ("added", "modified", "removed")}
         budget = ctx.map_doc["flow_budget"] if ctx.map_doc else {}
@@ -627,7 +629,7 @@ class Pipeline:
                 steps[s.step_change_status] = steps.get(s.step_change_status, 0) + 1
         return (f"{len(fcs)} flow change(s) {by}; step changes {steps}; map flow budget "
                 f"{budget.get('flows_built')}/{budget.get('entry_points_total')} built"
-                + ("; PR-related flows truncated" if truncated else ""))
+                + "".join(f"; {n}" for n in flow_notes))
 
     # ------------------------------------------------------------------ L6 impact + findings + architecture
     def stage_impact(self, ctx: Context) -> str:

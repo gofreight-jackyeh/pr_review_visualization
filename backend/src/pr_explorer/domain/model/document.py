@@ -10,7 +10,7 @@ from .changes import ChangedFile, Coverage
 from .finding import Finding
 from .graph import CodeRef, Evidence
 
-SCHEMA_VERSION = "2.3.0"
+SCHEMA_VERSION = "2.4.0"
 
 DISCLAIMER = (
     "Structure comes from static analysis (Python AST / TypeScript compiler) of the repository at one commit; "
@@ -196,6 +196,7 @@ class SemanticStatus:
 class SystemInfo:
     technical_name: str
     summary: Text | None = None
+    repo_kind: str = "application"  # application | infrastructure (Terraform / Helm / Kubernetes only; repo_kind.py)
 
 
 @dataclass

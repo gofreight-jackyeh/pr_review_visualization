@@ -23,7 +23,7 @@ SKIP_SEGMENTS = {"migrations", ".venv", "venv", "node_modules", "site-packages",
 MAX_FILES = 40_000
 MAX_BYTES = 1_000_000
 MANAGER_ATTRS = {"objects", "_default_manager", "_base_manager"}
-ENQUEUE_ATTRS = {"delay", "apply_async"}
+ENQUEUE_ATTRS = {"delay", "apply_async", "s", "si"}  # task.delay() / .apply_async() / signatures task.s() / .si()
 
 
 def text(node: ast.AST | None, limit: int = 200) -> str:
@@ -87,7 +87,8 @@ def attr_chain(expr: ast.expr) -> tuple[ast.expr, list[str]]:
 class CallRec:
     """One call site. `target` is a small descriptor tuple resolved in pass 2:
     ("name", n) | ("chain", root, attrs) | ("getattr", root|None, attrs, regex, explicit) | ("subscript", dict_name|None)
-    | ("instance", root, model_attrs, method) | ("enqueue", root, attrs)"""
+    | ("instance", root, model_attrs, method) | ("enqueue", root, attrs)
+    | ("ctor_method", root, attrs, method): `x = <root.attrs>(...); x.method()` or `<root.attrs>(...).method()`"""
 
     line: int
     end: int
@@ -121,6 +122,12 @@ class FuncInfo:
     class_name: str | None = None
     api_methods: list[str] | None = None  # DRF @api_view(["GET", ...]); [] = @api_view without a list (GET)
     uses_param_user: bool = False  # the body reads `<first param>.user` (a view acting on request.user)
+    # Django Ninja: `@<var>.get("/path", response=Schema)` decorators (kept only when <var> is a Ninja instance, pass 2)
+    # and the handler's parameters as Ninja reads them (location, required, annotation)
+    ninja_ops: list[dict] = field(default_factory=list)  # {var, methods, path, line, response: (root, attrs) | None}
+    ninja_params: list[dict] = field(default_factory=list)  # {name, where, required, ann: (root, attrs) | None, type}
+    # imports inside the body (`from app.x import Y` in a task, to avoid an import cycle): (level, module, name, alias)
+    local_imports: list[tuple[int, str | None, str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -142,6 +149,8 @@ class ClassInfo:
     meta_lists: dict[str, object] = field(default_factory=dict)  # Meta.fields / exclude / read_only_fields, extra_kwargs
     class_refs: dict[str, tuple] = field(default_factory=dict)  # attr = Name / a.b (e.g. serializer_class) -> (root, attrs)
     str_lists: dict[str, list[str]] = field(default_factory=dict)  # attr = ["a", "b"] (e.g. http_method_names)
+    # pydantic / Ninja schema: annotated fields -> {required (no default), type}; None = not a schema class
+    schema_fields: dict[str, dict] | None = None
 
 
 @dataclass
@@ -164,6 +173,10 @@ class ModuleInfo:
     column_defs: dict[str, dict] = field(default_factory=dict)  # scope -> {"keys": [...], "dynamic": bool, "line": n}
     str_constants: dict[str, str] = field(default_factory=dict)  # module-level NAME = "text"
     file_content_type: bool = False  # a CSV / spreadsheet content type or "attachment; filename" literal
+    # Django Ninja: module-level `api = NinjaAPI(...)` / `router = Router(...)` (var -> (constructor, line)) and
+    # `api.add_router("/prefix", router)` mounts (parent var, prefix, ("chain", root, attrs) | ("str", dotted), line)
+    ninja_instances: dict[str, tuple[str, int]] = field(default_factory=dict)
+    ninja_mounts: list[tuple] = field(default_factory=list)
 
 
 def dotted_for(path: str) -> tuple[str, bool]:
@@ -252,7 +265,10 @@ def _postorder_calls(node: ast.AST) -> list[ast.Call]:
     out: list[ast.Call] = []
 
     def visit(n: ast.AST) -> None:
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return
+        if isinstance(n, ast.Lambda):  # deferred, but still this function's call: on_commit(lambda: task.delay(...))
+            visit(n.body)
             return
         if isinstance(n, ast.Call):
             visit(n.func)
@@ -292,6 +308,8 @@ class _Recorder:
         self.events: list = []
         self.alias: dict[str, tuple] = {}  # local name -> dynamic descriptor (getattr / subscript)
         self.instances: dict[str, tuple] = {}  # local name -> (root, model attrs) of a Model.objects.<x>() result
+        self.ctors: dict[str, tuple] = {}  # local name -> (root, attrs) of the callee of `x = Callee(...)` (maybe a class)
+        self.imports: list[tuple[int, str | None, str, str]] = []  # see FuncInfo.local_imports
 
     def walk(self, stmts: list[ast.stmt], conds: tuple[str, ...]) -> None:
         for s in stmts:
@@ -346,12 +364,17 @@ class _Recorder:
                     self.track_alias(t.id, s.value)
                 elif isinstance(t, ast.Tuple) and t.elts and isinstance(t.elts[0], ast.Name):
                     self.track_alias(t.elts[0].id, s.value)  # obj, created = Model.objects.get_or_create(...)
+            elif isinstance(s, ast.ImportFrom):
+                self.imports += [(s.level, s.module, a.name, a.asname or a.name) for a in s.names if a.name != "*"]
+            elif isinstance(s, ast.Import):
+                self.imports += [(0, None, a.name, a.asname or a.name.split(".")[0]) for a in s.names]
             else:
                 self.calls_in(s, conds)
 
     def track_alias(self, name: str, v: ast.expr) -> None:
         self.alias.pop(name, None)
         self.instances.pop(name, None)
+        self.ctors.pop(name, None)
         if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "getattr" and len(v.args) >= 2:
             self.alias[name] = self.getattr_desc(v)
         elif isinstance(v, ast.Subscript):
@@ -361,6 +384,10 @@ class _Recorder:
             # x = Model.objects.get(...) / .create(...) / .filter(...).first()
             if root and len(attrs) >= 2 and attrs[-2] in MANAGER_ATTRS:
                 self.instances[name] = (root, attrs[:-2])
+            elif root and attrs[-1][:1].isupper():  # x = module.Class(...)
+                self.ctors[name] = (root, attrs)
+        elif isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id[:1].isupper():  # x = Class(...)
+            self.ctors[name] = (v.func.id, ())
 
     @staticmethod
     def getattr_desc(dyn: ast.Call) -> tuple:
@@ -395,13 +422,113 @@ class _Recorder:
             return None
         root, attrs = _chain_desc(func)
         if root is None:
+            inner = func.value
+            if isinstance(inner, ast.Call) and isinstance(inner.func, (ast.Name, ast.Attribute)):  # Class(...).method()
+                r, a = _chain_desc(inner.func)
+                if r is not None and (a[-1] if a else r)[:1].isupper():
+                    return ("ctor_method", r, a, func.attr)
             return None
+        if root in self.ctors and len(attrs) == 1 and attrs[0] not in ENQUEUE_ATTRS:  # x = Class(...); x.method()
+            r, a = self.ctors[root]
+            return ("ctor_method", r, a, attrs[0])
         if attrs[-1] in ENQUEUE_ATTRS and len(attrs) >= 1:
             return ("enqueue", root, attrs[:-1])
         if root in self.instances and len(attrs) == 1:
             r, model_attrs = self.instances[root]
             return ("instance", r, model_attrs, attrs[0])
         return ("chain", root, attrs)
+
+
+NINJA_VERBS = {"get", "post", "put", "patch", "delete"}
+NINJA_PARAM_FUNCS = {"Query", "Path", "Body", "Form", "File", "Header", "Cookie", "UploadedFile"}
+SCHEMA_BASES = ("Schema", "BaseModel", "ModelSchema", "FilterSchema")
+_PATH_PARAM = re.compile(r"{(?:[^}:]+:)?([^}]+)}")
+
+
+def _type_ref(expr: ast.expr | None, depth: int = 0) -> tuple[str, tuple[str, ...]] | None:
+    """The class a type expression names: `X`, `mod.X`, `List[X]`, `Optional[X]`, `X | None`, `{200: X}` → X."""
+    if expr is None or depth > 4:
+        return None
+    if isinstance(expr, (ast.Name, ast.Attribute)):
+        root, attrs = _chain_desc(expr)
+        return (root, attrs) if root and root not in ("None", "dict", "Dict", "Any", "str", "int", "bool", "float") else None
+    if isinstance(expr, ast.Subscript):
+        inner = expr.slice.elts[0] if isinstance(expr.slice, ast.Tuple) and expr.slice.elts else expr.slice
+        return _type_ref(inner, depth + 1)
+    if isinstance(expr, ast.BinOp):  # X | None
+        return _type_ref(expr.left, depth + 1) or _type_ref(expr.right, depth + 1)
+    if isinstance(expr, ast.Dict):  # response={200: X, 404: Error}
+        pick = next((v for k, v in zip(expr.keys, expr.values) if isinstance(k, ast.Constant) and k.value in (200, 201)),
+                    expr.values[0] if expr.values else None)
+        return _type_ref(pick, depth + 1)
+    return None
+
+
+def _ninja_ops(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[dict]:
+    out = []
+    for d in fn.decorator_list:
+        if not (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and isinstance(d.func.value, ast.Name)):
+            continue
+        verb, args = d.func.attr, list(d.args)
+        if verb in NINJA_VERBS:
+            methods = [verb.upper()]
+        elif verb == "api_operation" and args and _str_list(args[0]) is not None:
+            methods = [m.upper() for m in _str_list(args.pop(0)) or []]
+        else:
+            continue
+        kw = {k.arg: k.value for k in d.keywords if k.arg}
+        path = args[0] if args else kw.get("path")
+        if not (isinstance(path, ast.Constant) and isinstance(path.value, str)):
+            continue
+        out.append({"var": d.func.value.id, "methods": methods, "path": path.value, "line": d.lineno,
+                    "response": _type_ref(kw.get("response"))})
+    return out
+
+
+def _ninja_params(fn: ast.FunctionDef | ast.AsyncFunctionDef, paths: list[str]) -> list[dict]:
+    """Parameters after `request`, as Django Ninja reads them: `x: int` (required query), `x: str = None` (optional),
+    `x = Query(...)` / `Query[X]` / `Annotated[X, Query(...)]` (explicit location), `payload: SomeSchema` (body),
+    and `{x}` in the operation path (path)."""
+    a = fn.args
+    args = (a.posonlyargs + a.args)[1:]
+    defaults: list[ast.expr | None] = [None] * (len(a.posonlyargs + a.args) - len(a.defaults)) + list(a.defaults)
+    pairs = list(zip(args, defaults[1:])) + list(zip(a.kwonlyargs, a.kw_defaults))
+    in_path = {m.group(1) for p in paths for m in _PATH_PARAM.finditer(p)}
+    out = []
+    for arg, default in pairs:
+        ann, where, required = arg.annotation, "auto", default is None
+        marker = default if isinstance(default, ast.Call) else None
+        if isinstance(ann, ast.Subscript) and text(ann.value).rsplit(".", 1)[-1] == "Annotated" and isinstance(ann.slice, ast.Tuple):
+            elts = ann.slice.elts
+            ann = elts[0] if elts else None
+            marker = next((e for e in elts[1:] if isinstance(e, ast.Call)), marker)
+        elif isinstance(ann, ast.Subscript) and text(ann.value).rsplit(".", 1)[-1] in NINJA_PARAM_FUNCS:
+            where = text(ann.value).rsplit(".", 1)[-1].lower()  # Query[FilterSchema]
+            ann = ann.slice
+        if marker is not None and text(marker.func).rsplit(".", 1)[-1] in NINJA_PARAM_FUNCS:
+            where = text(marker.func).rsplit(".", 1)[-1].lower()
+            first = marker.args[0] if marker.args else next((k.value for k in marker.keywords if k.arg == "default"), None)
+            required = first is None or (isinstance(first, ast.Constant) and first.value is Ellipsis)
+        if arg.arg in in_path:
+            where, required = "path", True
+        out.append({"name": arg.arg, "where": where, "required": required, "ann": _type_ref(ann), "type": text(ann, 80) or None})
+    return out
+
+
+def _schema_fields(item: ast.ClassDef, base_texts: list[str]) -> dict[str, dict] | None:
+    if not any(b.rsplit(".", 1)[-1] in SCHEMA_BASES for b in base_texts):
+        return None
+    out: dict[str, dict] = {}
+    for st in item.body:
+        if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and not st.target.id.startswith("_"):
+            if text(st.annotation).startswith(("ClassVar", "typing.ClassVar")):
+                continue
+            v = st.value
+            required = v is None or (isinstance(v, ast.Call) and text(v.func).rsplit(".", 1)[-1] == "Field"
+                                     and (not v.args or (isinstance(v.args[0], ast.Constant) and v.args[0].value is Ellipsis))
+                                     and not any(k.arg in ("default", "default_factory") for k in v.keywords))
+            out[st.target.id] = {"required": required, "type": text(st.annotation, 80)}
+    return out
 
 
 def _func_info(fn: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str, is_method: bool, class_name: str | None) -> FuncInfo:
@@ -416,8 +543,22 @@ def _func_info(fn: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str, is_met
     uses_user = first is not None and any(
         isinstance(n, ast.Attribute) and n.attr == "user" and isinstance(n.value, ast.Name) and n.value.id == first
         for stmt in fn.body for n in ast.walk(stmt))
+    ninja = _ninja_ops(fn) if not is_method else []
     return FuncInfo(fn.name, qualname, fn.lineno, fn.end_lineno or fn.lineno, decs, signature(fn, is_method, decs),
-                    node_hash(fn), first, rec.events, class_name, api, uses_user)
+                    node_hash(fn), first, rec.events, class_name, api, uses_user, ninja,
+                    _ninja_params(fn, [o["path"] for o in ninja]) if ninja else [], rec.imports)
+
+
+def local_import_map(mod: "ModuleInfo", f: FuncInfo) -> dict[str, tuple[str, int]]:
+    """A function's own imports in `ModuleInfo.imports` form (alias -> (dotted target, line)); relative ones resolved."""
+    out: dict[str, tuple[str, int]] = {}
+    for level, module, name, alias in f.local_imports:
+        if module is None and level == 0:  # import a.b [as c]
+            out[alias] = (name if alias != name.split(".")[0] else alias, f.lineno)
+            continue
+        base = _resolve_relative(mod.dotted, mod.is_package, level, module) if level else (module or "")
+        out[alias] = (f"{base}.{name}" if base else name, f.lineno)
+    return out
 
 
 def _beat_entries(value: ast.expr) -> list[tuple[str, str, int]]:
@@ -549,6 +690,7 @@ def parse_source(path: str, src: str) -> ModuleInfo:
         elif isinstance(stmt, ast.ClassDef):
             ci = ClassInfo(stmt.name, stmt.lineno, stmt.end_lineno or stmt.lineno, list(stmt.bases),
                            [text(b) for b in stmt.bases], [decorator_name(d) for d in stmt.decorator_list], "")
+            ci.schema_fields = _schema_fields(stmt, ci.base_texts)
             members: dict[int, str] = {}
             for item in stmt.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -601,10 +743,23 @@ def parse_source(path: str, src: str) -> ModuleInfo:
                         mod.beat += _beat_entries(value)
                 elif isinstance(value, ast.Call) and text(value.func).rsplit(".", 1)[-1] == "Signal":
                     mod.signals.add(t.id)
+                elif isinstance(value, ast.Call) and text(value.func).rsplit(".", 1)[-1] in ("NinjaAPI", "Router"):
+                    mod.ninja_instances[t.id] = (text(value.func), stmt.lineno)
+        if (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) and isinstance(stmt.value.func, ast.Attribute)
+                and stmt.value.func.attr == "add_router" and isinstance(stmt.value.func.value, ast.Name)
+                and len(stmt.value.args) >= 2 and isinstance(stmt.value.args[0], ast.Constant)
+                and isinstance(stmt.value.args[0].value, str)):
+            target = stmt.value.args[1]
+            desc = (("str", target.value) if isinstance(target, ast.Constant) and isinstance(target.value, str)
+                    else ("chain", *_chain_desc(target)))
+            mod.ninja_mounts.append((stmt.value.func.value.id, stmt.value.args[0].value, desc, stmt.lineno))
         # app.conf.beat_schedule = {...}
         if isinstance(stmt, ast.Assign) and any(isinstance(t, ast.Attribute) and t.attr == "beat_schedule" for t in stmt.targets):
             mod.beat += _beat_entries(stmt.value)
     mod.hash = composite_hash([], tree.body, known)
+    # `Router` is a common class name: keep it only when imported from django-ninja (NinjaAPI is unambiguous)
+    mod.ninja_instances = {k: v for k, v in mod.ninja_instances.items() if v[0].rsplit(".", 1)[-1] == "NinjaAPI"
+                           or v[0].startswith("ninja.") or mod.imports.get(v[0].split(".")[0], ("",))[0].startswith("ninja")}
     _scan_columns(mod, tree, src)
     mod.routes = extract_routes(tree)
     mod.routers = extract_routers(tree)

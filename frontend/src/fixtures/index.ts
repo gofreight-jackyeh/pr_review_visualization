@@ -55,6 +55,22 @@ export const empty = (): FixturePair => ({
   }).overlay,
 })
 
+/** 基礎設施 repo: a Terraform / Helm / Kubernetes PR (system.repo_kind = infrastructure): no flows, files by module. */
+export const infra = (): FixturePair => derive(sample, ({ map: m, overlay: o }) => {
+  m.system.repo_kind = "infrastructure"
+  o.pr = { ...o.pr, number: 512, title: "Tighten VPC egress and bump API replicas", head_ref: "infra/egress" }
+  const f = (id: string, path: string, language: string, additions: number, deletions: number) =>
+    ({ id, path, status: "modified" as const, language, additions, deletions, capability_id: null })
+  o.changes.files = [
+    f("f:vpc-main", "modules/vpc/main.tf", "unknown", 12, 3), f("f:vpc-vars", "modules/vpc/variables.tf", "unknown", 4, 0),
+    f("f:prod", "envs/prod/main.tf", "unknown", 2, 2), f("f:chart-deploy", "charts/api/templates/deployment.yaml", "yaml", 3, 1),
+    f("f:chart-values", "charts/api/values.yaml", "yaml", 1, 1), f("f:ingress", "k8s/base/ingress.yaml", "yaml", 5, 0),
+    f("f:readme", "README.md", "markdown", 2, 0),
+  ]
+  o.behavior_changes = []
+  o.flow_changes = []
+})
+
 /** A real-size repo: multi-sentence system summary and very long before / after texts (the first screen must stay compact). */
 export const longtext = (): FixturePair => derive(sample, ({ map: m, overlay: o }) => {
   m.system.summary!.text = "這是一個線上商店後端，負責結帳與付款。" + "它也處理庫存、通知、報表與排程，並與多個外部系統整合。".repeat(6)
@@ -73,5 +89,5 @@ export const FAILED_INPUT = { pr_url: "https://github.com/acme/shop/pull/999" }
 
 /** `?fixture=<name>` opens these without a backend (`failed` opens the input page with a failed analysis). Generated lazily. */
 export const FIXTURES: Record<string, () => FixturePair> = {
-  sample: () => sample, "sample-nosemantic": () => sampleNoSemantic, large, pending, partial, empty, longtext,
+  sample: () => sample, "sample-nosemantic": () => sampleNoSemantic, large, pending, partial, empty, longtext, infra,
 }

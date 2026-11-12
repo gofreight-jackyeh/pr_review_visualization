@@ -9,6 +9,7 @@ confidence=unknown edges. Never imports or executes analyzed code.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import re
 import time
 from pathlib import Path
@@ -16,7 +17,8 @@ from pathlib import Path
 from ....domain.model import ids
 from ....domain.model.graph import CodeRef, Edge, EntryFact, Evidence, FlowStep, Node, Producer, SideGraph, UnresolvedRef
 from .ast_analyzer import (
-    CallRec, ClassInfo, FuncInfo, ModuleInfo, StmtRec, attr_chain, file_digest, parse_source, python_files, read_source, text,
+    CallRec, ClassInfo, FuncInfo, ModuleInfo, StmtRec, attr_chain, dotted_for, file_digest, local_import_map, parse_source,
+    python_files, read_source, text,
 )
 from .django_rules.classify import (
     EXTERNAL_CALLS, EXTERNAL_MODULES, HTTP_METHODS, INSTANCE_ACTIONS, MANAGER_ATTRS, TASK_DECORATORS, VIEWSET_ACTIONS,
@@ -38,16 +40,21 @@ class _Index:
         self.by_dotted: dict[str, tuple] = {}
         self.modules = modules
         self.roots: set[str] = set()
-        for mod in modules.values():
-            self.by_dotted[mod.dotted] = ("module", mod)
-            if mod.dotted:
-                self.roots.add(mod.dotted.split(".")[0])
-            for f in mod.functions.values():
-                self.by_dotted[f"{mod.dotted}.{f.name}"] = ("function", mod, f)
-            for c in mod.classes.values():
-                self.by_dotted[f"{mod.dotted}.{c.name}"] = ("class", mod, c)
-                for m in c.methods.values():
-                    self.by_dotted[f"{mod.dotted}.{c.name}.{m.name}"] = ("method", mod, m)
+        project_dirs = sorted({p.rsplit("/", 1)[0] for p in modules if p.endswith("/manage.py")}, key=len, reverse=True)
+        for real in (True, False):  # repository-relative names first; source-root aliases never shadow them
+            for mod in modules.values():
+                name = mod.dotted if real else _source_root_name(mod.path, project_dirs)
+                if name is None or (not real and name in self.by_dotted):
+                    continue
+                self.by_dotted.setdefault(name, ("module", mod))
+                if name:
+                    self.roots.add(name.split(".")[0])
+                for f in mod.functions.values():
+                    self.by_dotted.setdefault(f"{name}.{f.name}", ("function", mod, f))
+                for c in mod.classes.values():
+                    self.by_dotted.setdefault(f"{name}.{c.name}", ("class", mod, c))
+                    for m in c.methods.values():
+                        self.by_dotted.setdefault(f"{name}.{c.name}.{m.name}", ("method", mod, m))
 
     def lookup(self, dotted: str, depth: int = 0) -> tuple | None:
         hit = self.by_dotted.get(dotted)
@@ -61,6 +68,19 @@ class _Index:
 
     def is_project(self, dotted: str) -> bool:
         return dotted.split(".")[0] in self.roots
+
+
+def _source_root_name(path: str, project_dirs: list[str]) -> str | None:
+    """Import name of a module under a source root — the directory holding manage.py, or a `src/` directory
+    (`src/app/x.py` is imported as `app.x`); None when the repository-relative name is already the import name."""
+    rel = next((path[len(d) + 1:] for d in project_dirs if path.startswith(d + "/")), None)
+    if rel is None:
+        parts = path.split("/")
+        if "src" not in parts[:-1]:
+            return None
+        rel = "/".join(parts[len(parts) - 1 - parts[:-1][::-1].index("src"):])
+    name = dotted_for(rel)[0]
+    return name or None
 
 
 def _node_id(mod: ModuleInfo, qual: str | None = None) -> str:
@@ -183,6 +203,7 @@ class _Builder:
             for c in mod.classes.values():
                 self.add_class_relations(mod, c)
         self.add_routes()
+        self.add_ninja_routes()
         self.add_tasks_and_commands()
         for mod in self.modules.values():
             for f in mod.functions.values():
@@ -255,6 +276,9 @@ class _Builder:
             contract: dict = {}  # interface facts (spec §8): DRF serializer fields, view → serializer, allowed methods
             if kind == "serializer":
                 contract["serializer"] = {"declared": dict(c.field_opts), **c.meta_lists, "has_meta_model": c.meta_model is not None}
+            if c.schema_fields is not None:  # pydantic / Ninja schema (request / response shape of a Ninja operation)
+                contract["schema"] = {"fields": dict(c.schema_fields), "model_schema": c.meta_model is not None
+                                      or any(b.rsplit(".", 1)[-1] == "ModelSchema" for b in c.base_texts)}
             if kind == "view":
                 ref = c.class_refs.get("serializer_class")
                 hit = self.resolve_chain(mod, ref[0], tuple(ref[1])) if ref else None
@@ -328,6 +352,13 @@ class _Builder:
                                  f"{c.name}.Meta.model = {text(c.meta_model)} (Django)", "meta_model", producer=DJANGO)
                     self.edge("uses_model", cid, _def_id(hit), "confirmed", ev)
         if self.class_kind.get(cid) != "view":
+            if "__init__" in c.methods:  # `Class(...)` runs Class.__init__: the constructor call continues there
+                mi = c.methods["__init__"]
+                tid = _node_id(mod, mi.qualname)
+                ev = self.ev("ast", mod.path, mi.lineno, f"constructing {c.name}(...) runs {c.name}.__init__()", "init", c.name)
+                eid = self.edge("calls", cid, tid, "confirmed", ev)
+                self.g.flows[cid] = [FlowStep(mod.path, mi.lineno, mi.lineno, "call", f"{c.name}.__init__()", [tid], [eid],
+                                              evidence_refs=[ev])]
             return
         steps = []
         dispatch = [(m, f'request.method == "{m.upper()}"', "View.dispatch()") for m in HTTP_METHODS]
@@ -350,22 +381,24 @@ class _Builder:
     # ---------- entry points: django urls + DRF routers ----------
     def add_routes(self) -> None:
         urls = {p: m for p, m in self.modules.items() if m.routes or m.routers}
-        included: dict[str, list[tuple[str, str]]] = {}  # child path -> [(parent path, prefix)]
+        # (child path, pattern list) -> [(parent path, parent list, prefix)]
+        included: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
         for p, m in urls.items():
             for e in m.routes:
                 if e.include_target is None:
                     continue
                 target = self._module_for_include(m, e.include_target)
                 if target:
-                    included.setdefault(target, []).append((p, e.pattern))
-        prefix_cache: dict[str, str] = {}
+                    included.setdefault(target, []).append((p, e.list_name, display_pattern("", e)[1:]))
+        prefix_cache: dict[tuple[str, str], str] = {}
+        self.ninja_prefix: dict[tuple[str, str], str] = {}  # Ninja API instance -> URL prefix (Django urlpatterns)
 
-        def prefix(p: str, depth: int = 0) -> str:
-            if p in prefix_cache:
-                return prefix_cache[p]
-            parents = sorted(included.get(p, []))
-            pre = "" if not parents or depth > 8 else prefix(parents[0][0], depth + 1) + parents[0][1]
-            prefix_cache[p] = pre
+        def prefix(p: str, name: str = "urlpatterns", depth: int = 0) -> str:
+            if (p, name) in prefix_cache:
+                return prefix_cache[(p, name)]
+            parents = sorted(included.get((p, name), []))
+            pre = "" if not parents or depth > 8 else prefix(parents[0][0], parents[0][1], depth + 1) + parents[0][2]
+            prefix_cache[(p, name)] = pre
             return pre
 
         for p, mod in sorted(urls.items()):
@@ -373,10 +406,16 @@ class _Builder:
             for e in mod.routes:
                 if e.view_expr is None:
                     continue
+                if isinstance(e.view_expr, ast.Attribute) and e.view_expr.attr == "urls":  # path("api/", api.urls)
+                    root, attrs = attr_chain(e.view_expr.value)
+                    key = self._ninja_ref(mod, ("chain", root.id if isinstance(root, ast.Name) else None, tuple(attrs)))
+                    if key is not None:
+                        self.ninja_prefix.setdefault(key, display_pattern(prefix(p), e))
+                        continue
                 target = self._view_target(mod, e.view_expr)
                 idx = seen.get(e.pattern, 0)
                 seen[e.pattern] = idx + 1
-                label = display_pattern(prefix(p), e)
+                label = display_pattern(prefix(p, e.list_name), e)
                 self._route(p, mod, ids.route_id(p, e.pattern, idx), label, e.line, e.end_line, target,
                             f"Django route {label} declared in {p}:{e.line}", ("route", e.pattern, idx), e.name)
             routers = mod.routers
@@ -387,6 +426,81 @@ class _Builder:
                 self._route(p, mod, ids.route_id(p, f"router:{reg_prefix}", i), label, line, end, target,
                             f"DRF router {var}.register({reg_prefix!r}) at {p}:{line} → {label}", ("router", reg_prefix, i),
                             None, api=True)
+
+    # ---------- entry points: Django Ninja operations ----------
+    def _ninja_ref(self, mod: ModuleInfo, desc: tuple) -> tuple[str, str] | None:
+        """(module path, variable) of the Ninja API / Router instance a name, `module.attr` or dotted string names."""
+        if desc[0] == "str":
+            head, _, attr = desc[1].rpartition(".")
+            hit = self.idx.by_dotted.get(head)
+            return (hit[1].path, attr) if hit and hit[0] == "module" and attr in hit[1].ninja_instances else None
+        _, root, attrs = desc
+        if root is None:
+            return None
+        if not attrs and root in mod.ninja_instances:
+            return mod.path, root
+        d = self.resolve_name(mod, root)
+        if d is None:
+            return None
+        head, _, attr = ".".join([d, *attrs]).rpartition(".")
+        hit = self.idx.lookup(head) if head else None
+        return (hit[1].path, attr) if hit and hit[0] == "module" and attr in hit[1].ninja_instances else None
+
+    def add_ninja_routes(self) -> None:
+        """`@router.get("/x")` on an instance mounted by `api.add_router("/tasks", router)` and `path("api/", api.urls)`
+        → entry point GET /api/tasks/x (kind api). The handler's parameters and schema classes are its contract."""
+        parent: dict[tuple[str, str], tuple[tuple[str, str], str]] = {}  # child instance -> (parent instance, prefix)
+        for mod in self.modules.values():
+            for var, pre, desc, _line in mod.ninja_mounts:
+                me = self._ninja_ref(mod, ("chain", var, ()))
+                child = self._ninja_ref(mod, desc)
+                if me and child and child != me:
+                    parent.setdefault(child, (me, pre))
+
+        def full(key: tuple[str, str], depth: int = 0) -> str:
+            if key in parent and depth < 6:
+                up, pre = parent[key]
+                return full(up, depth + 1) + "/" + pre
+            return self.ninja_prefix.get(key, "")
+
+        for p, mod in sorted(self.modules.items()):
+            for f in mod.functions.values():
+                ops = [(o, k) for o in f.ninja_ops if (k := self._ninja_ref(mod, ("chain", o["var"], ())))]
+                if not ops:
+                    continue
+                nid = _node_id(mod, f.qualname)
+                node = self.g.nodes[nid]
+                methods: set[str] = set(node.meta.get("api_methods") or [])
+                for i, (o, key) in enumerate(ops):
+                    label = "/" + re.sub(r"/{2,}", "/", f"{full(key)}/{o['path']}").lstrip("/")
+                    methods |= set(o["methods"])
+                    rid = ids.route_id(p, f"ninja:{'|'.join(o['methods'])}:{o['path']}", i)
+                    self._route(p, mod, rid, label, o["line"], f.end_lineno, nid,
+                                f"Django Ninja @{o['var']}.{'/'.join(m.lower() for m in o['methods'])}({o['path']!r}) at "
+                                f"{p}:{o['line']} → {' '.join(o['methods'])} {label}", ("ninja", o["path"], i), None, api=True)
+                node.meta["api_methods"] = sorted(methods)
+                node.meta["ninja"] = self._ninja_contract(mod, f, [o for o, _ in ops])
+
+    def _ninja_contract(self, mod: ModuleInfo, f: FuncInfo, ops: list[dict]) -> dict:
+        def schema(ref: tuple | None) -> str | None:
+            hit = self.resolve_chain(mod, ref[0], tuple(ref[1])) if ref else None
+            return _def_id(hit) if hit and hit[0] == "class" and hit[2].schema_fields is not None else None
+
+        params: dict[str, dict] = {}
+        body: dict[str, str | None] = {}
+        expand: dict[str, str] = {}  # Query[FilterSchema] / filters: FilterSchema = Query(...): its fields are query params
+        for prm in f.ninja_params:
+            sid = schema(prm["ann"])
+            where = prm["where"] if prm["where"] != "auto" else ("body" if sid else "query")
+            if sid and where not in ("body", "form", "file"):
+                expand[prm["name"]] = sid
+            elif where in ("body", "form"):
+                body[prm["name"]] = sid
+            elif where != "file":
+                params[prm["name"]] = {"in": where, "required": prm["required"], "type": prm["type"]}
+        resp = [o["response"] for o in ops if o.get("response")]
+        return {"params": params, "body": body, "query_schemas": expand, "response": schema(resp[0]) if resp else None,
+                "response_declared": bool(resp)}
 
     def _route(self, p: str, mod: ModuleInfo, rid: str, label: str, line: int, end: int, target: str | None, desc: str,
                disc: tuple, url_name: str | None, api: bool = False) -> None:
@@ -402,13 +516,26 @@ class _Builder:
             self.g.flows[rid] = [FlowStep(p, line, end, "call", f"{label} → {tnode.label}", [target], [eid], evidence_refs=[ev])]
         self.g.entry_points.append(EntryFact(rid, "api" if api else "route", label, target, self.ref(p, line, end), ev))
 
-    def _module_for_include(self, mod: ModuleInfo, expr: ast.expr) -> str | None:
+    def _module_for_include(self, mod: ModuleInfo, expr: ast.expr) -> tuple[str, str] | None:
+        """(module path, pattern list) an include() mounts: a urls module (its `urlpatterns`) or a named pattern list
+        (`include(reports_urlpatterns)`, imported or defined in the same module)."""
         if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
             hit = self.idx.lookup(expr.value)
-        else:
-            root, attrs = attr_chain(expr)
-            hit = self.resolve_chain(mod, root.id, tuple(attrs)) if isinstance(root, ast.Name) else None
-        return hit[1].path if hit and hit[0] == "module" else None
+            return (hit[1].path, "urlpatterns") if hit and hit[0] == "module" else None
+        root, attrs = attr_chain(expr)
+        if not isinstance(root, ast.Name):
+            return None
+        if not attrs and any(e.list_name == root.id for e in mod.routes):
+            return mod.path, root.id
+        hit = self.resolve_chain(mod, root.id, tuple(attrs))
+        if hit and hit[0] == "module":
+            return hit[1].path, "urlpatterns"
+        d = self.resolve_name(mod, root.id)
+        head, _, var = ".".join([d, *attrs]).rpartition(".") if d else ("", "", "")
+        owner = self.idx.lookup(head) if head else None
+        if owner and owner[0] == "module" and any(e.list_name == var for e in owner[1].routes):
+            return owner[1].path, var
+        return None
 
     def _view_target(self, mod: ModuleInfo, expr: ast.expr) -> str | None:
         if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute) and expr.func.attr == "as_view":
@@ -461,6 +588,8 @@ class _Builder:
 
 class _Resolver:
     def __init__(self, b: _Builder, mod: ModuleInfo, f: FuncInfo, cls: ClassInfo | None, nid: str):
+        if f.local_imports:  # names imported inside the function resolve like module-level imports (a view, not a copy)
+            mod = dataclasses.replace(mod, imports={**mod.imports, **local_import_map(mod, f)})
         self.b, self.mod, self.f, self.cls, self.nid = b, mod, f, cls, nid
         self.steps: list[FlowStep] = []
 
@@ -576,6 +705,18 @@ class _Resolver:
             if hit and hit[0] in ("function", "method"):
                 tid = _def_id(hit)
                 self.emit(c, tid, f"enqueues background task {b.g.nodes[tid].label if tid in b.g.nodes else tid}")
+            return
+        if kind == "ctor_method":  # x = Class(...); x.method()  /  Class(...).method()
+            _, root, attrs, method = t
+            hit = b.resolve_chain(self.mod, root, attrs)
+            if hit and hit[0] == "class":
+                cid = _def_id(hit)
+                if b.class_kind.get(cid) == "model" and method in INSTANCE_ACTIONS:
+                    self.query(c, cid, INSTANCE_ACTIONS[method])
+                    return
+                target = self._method_in_hierarchy(hit[1], hit[2], method, set())
+                if target:
+                    self.confirmed_call(c, target)
             return
         if kind == "instance":
             _, root, model_attrs, method = t

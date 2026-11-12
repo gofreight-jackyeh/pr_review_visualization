@@ -12,6 +12,7 @@ from ..model.document import (
 from .domains import static_domains
 from ..model.graph import Evidence, Node, SideGraph
 from .flow_steps import build_timeline
+from .repo_kind import repo_kind
 from .system_structure import Structure, select_representative
 
 COMPONENT_KIND = {
@@ -117,7 +118,8 @@ def assemble_system_map(
     pool = {**sg.evidence, **st.evidence, **(extra_evidence or {})}
     return SystemMap(
         analyzer_version=analyzer_version, system_map_id=system_map_id, generated_at=generated_at, repo=repo,
-        commit_sha=commit_sha, system=SystemInfo(repo.name), coverage=coverage, capabilities=caps,
+        commit_sha=commit_sha, system=SystemInfo(repo.name, repo_kind=repo_kind(sg.files, len(st.entry_points))),
+        coverage=coverage, capabilities=caps,
         entities=sorted(st.entities.values(), key=lambda e: e.id), entry_points=sorted(eps, key=lambda e: e.id),
         components=components, relations=sorted(st.relations.values(), key=lambda r: r.id),
         flows=flows, flow_budget=FlowBudget(len(st.entry_points), sum(1 for f in flows if f.id in built)),
