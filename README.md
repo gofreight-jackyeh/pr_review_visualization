@@ -22,6 +22,7 @@ Try it without GitHub: `make demo`, then use local repo mode with the printed pa
 - Structure (capabilities, flows, interfaces, rules) comes only from static analysis. Claude writes explanations, groups capabilities into business domains and cuts flows into phases — every statement must cite evidence or it is dropped, and these are labelled as Claude's.
 - Dynamic calls are **unknown**; steps inside unconfirmed branches are **possible**; flows are reconstructions, never runtime traces.
 - Claude's findings and architecture hypotheses are always **needs confirmation**.
+- Written rules (`CLAUDE.md`, `AGENTS.md`, `.claude/rules/`, docs) are read from the PR's base commit; a PR that edits an instruction file is flagged for review. A suspected departure from a written rule is a hypothesis, never a verdict ([details](docs/repo-config.md#documented-rules-no-configuration)).
 - PR code is parsed, never executed.
 - Claude's text is interpretation, and PR content (title, description, code, comments) can influence it. Treat it as unverified.
 

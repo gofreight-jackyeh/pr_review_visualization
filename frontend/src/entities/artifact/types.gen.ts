@@ -195,8 +195,18 @@ export type ArchCheck = {
    */
   origin: "documented" | "inferred" | "observed" | "hypothesis"
   source: "static" | "semantic"
+  /**
+   * documented_rule = the PR may depart from a rule written in an instruction file (CLAUDE.md, AGENTS.md, .claude/rules).
+   */
   check:
-    "interface_change" | "dependency_direction" | "interface" | "placement" | "shared_mechanism" | "new_debt" | "cycle"
+    | "interface_change"
+    | "dependency_direction"
+    | "interface"
+    | "placement"
+    | "shared_mechanism"
+    | "new_debt"
+    | "cycle"
+    | "documented_rule"
   /**
    * Outermost ring this check concerns; the UI orders checks outer → inner.
    */
@@ -236,7 +246,7 @@ export type ArchCheck = {
 
 export interface SystemMap {
   kind: "system_map"
-  schema_version: "2.2.0"
+  schema_version: "2.3.0"
   analyzer_version: Version
   system_map_id: Id
   generated_at: string
@@ -406,7 +416,7 @@ export interface SemanticStatus {
 }
 export interface PrOverlay {
   kind: "pr_overlay"
-  schema_version: "2.2.0"
+  schema_version: "2.3.0"
   analyzer_version: Version
   overlay_id: Id
   system_map_id: Id

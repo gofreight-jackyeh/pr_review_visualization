@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..model import ids
 from ..model.changes import ChangedFile
+from ..model.convention import instruction_scope
 from ..model.finding import Finding
 from ..model.graph import CallShape, CodeRef, Evidence, Graph, Node, Producer
 
@@ -216,8 +217,38 @@ def _view_missing_decorator(c: _Ctx) -> None:
                 )
 
 
+def _documented_rules_changed(c: _Ctx) -> None:
+    """The documented rules (CLAUDE.md, AGENTS.md, .claude/rules …) are read at the merge-base, so a PR cannot rewrite
+    the rules that judge it; a PR that edits them is itself something the reviewer must confirm."""
+    for f in c.changed_paths.values():
+        paths = [p for p in dict.fromkeys((f.path, f.old_path)) if p and instruction_scope(p) is not None]
+        diff = c.graph.evidence.get(f"ev:diff:{f.path}")  # the stage's diff evidence of the file (hunk ranges)
+        if not paths or diff is None:
+            continue
+        path = paths[0]
+        scope = instruction_scope(path) or ""
+        verb = {"added": ("adds", "新增"), "removed": ("deletes", "刪除"), "renamed": ("moves", "搬移")}.get(f.status, ("changes", "修改"))
+        where = ("整個 repository" if not scope else f"{scope} 底下") if c.zh else ("the whole repository" if not scope else scope)
+        c.add(
+            "documented_rules_changed", path,
+            title=f"這個 PR {verb[1]}了 {path} 裡記載的規則" if c.zh else f"This PR {verb[0]} the documented rules in {path}",
+            description=(
+                f"{path} 記載了適用於{where}的人／agent 規則。這次分析用的是基準版本（merge-base）的規則，"
+                "PR 對規則的修改不會用來評斷這個 PR 本身；請確認這個規則變更是刻意且經過同意的。" if c.zh else
+                f"{path} holds written human / agent rules for {where}. This analysis judges the PR against the rules "
+                "at the merge-base, never the PR's own edits to them; confirm the rule change is intended and agreed."
+            ),
+            severity="attention",
+            changed_file_ids=c.file_ids(f.path),
+            node_ids=[],
+            refs=list(diff.refs[:5]),
+            evidence_refs=[diff.id],
+        )
+
+
 def find_static_issues(graph: Graph, files: list[ChangedFile], lang: str = "en") -> tuple[list[Finding], list[Evidence]]:
     c = _Ctx(graph, files, lang)
+    _documented_rules_changed(c)
     _removed_still_referenced(c)
     _signature_mismatch(c)
     _model_field_without_migration(c)

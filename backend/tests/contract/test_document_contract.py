@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from pr_explorer.domain.model.document import SCHEMA_VERSION
 from pr_explorer.infrastructure.persistence.schema_validator import (
     DocumentValidationError, find_schema_path, overlay_integrity, schema_errors, system_map_integrity, validate_overlay,
     validate_system_map,
@@ -34,7 +35,8 @@ def test_fixture_documents_are_valid(shop_docs, shop_repo):
     assert schema_errors(smap) == [] and schema_errors(ov) == []
     assert system_map_integrity(smap, files["base"]) == []
     assert overlay_integrity(ov, smap, files) == []
-    assert Path(paths["system_map"]).name.endswith(".v2.2.0.json") and Path(paths["overlay"]).name.endswith(".v2.2.0.json")
+    suffix = f".v{SCHEMA_VERSION}.json"
+    assert Path(paths["system_map"]).name.endswith(suffix) and Path(paths["overlay"]).name.endswith(suffix)
 
 
 def test_every_statement_and_element_is_traceable(shop_docs):

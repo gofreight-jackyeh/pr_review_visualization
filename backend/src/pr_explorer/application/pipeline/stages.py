@@ -22,7 +22,7 @@ from typing import Callable
 
 from ...domain.model.changes import ChangedFile, Coverage
 from ...domain.model import ids
-from ...domain.model.convention import DocExcerpt
+from ...domain.model.convention import DocExcerpt, instruction_scope
 from ...domain.model.document import (
     ArchCheck, ChangesPayload, FlowChange, Impact, Phase, PrOverlay, PullRequest, Repo, SemanticStatus, SystemMap, Text,
 )
@@ -627,7 +627,9 @@ class Pipeline:
         g, ws, b = ctx.graph, ctx.workspace, ctx.builder
         assert g is not None and ws is not None and b is not None
         res = propagate_impact(g.nodes, g.edges, self.d.config.impact_max_depth, self.d.config.impact_max_nodes)
-        ctx.knowledge = self.d.knowledge.collect(ws.head_root, ws.head_files, ctx.request.context_docs)
+        # documented rules come from the merge-base: a PR cannot rewrite the rules that judge it (its edits to them
+        # are a static finding, documented_rules_changed)
+        ctx.knowledge = self.d.knowledge.collect(ws.base_root, ws.base_files, ctx.request.context_docs)
         ctx.lang = detect_language(ctx.pr.title, ctx.pr.body, *(d.text for d in ctx.knowledge.excerpts[:2]))
         findings, fev = find_static_issues(g, ctx.files, ctx.lang)
         b.map_findings(findings, ctx.flow_nodes, ctx.lang)
@@ -649,8 +651,8 @@ class Pipeline:
             changed_nodes=g.changed_node_ids(), changed_paths=changed_paths, iface_ref=b.iface_ref, cap_ref=b.cap_ref,
             diff_ev={p: e.id for p, e in ctx.diff_evidence.items()}, lang=ctx.lang)
         ctx.arch_checks = sorted(iface_checks + checks.checks, key=check_order)
-        doc_ev = [Evidence(ids.evidence_id("doc", "head", r.path, r.line, r.text), "doc", f"Documented in {r.path}:{r.line}",
-                           [CodeRef("head", r.path, r.line)], DOC_PRODUCER) for r in ctx.knowledge.rules]
+        doc_ev = [Evidence(ids.evidence_id("doc", "base", r.path, r.line, r.text), "doc", f"Documented in {r.path}:{r.line}",
+                           [CodeRef("base", r.path, r.line)], DOC_PRODUCER) for r in ctx.knowledge.rules]
         ctx.extra_evidence = {**b_if.evidence, **h_if.evidence, **{e.id: e for e in fev + checks.evidence + doc_ev}}
         ctx.impacts = b.impacts(ctx.flow_changes, {p: e.id for p, e in ctx.diff_evidence.items()})
         counts: dict[str, int] = {}
@@ -779,8 +781,10 @@ class Pipeline:
                                 "compatibility": c.interface_change.compatibility, "detail": c.interface_change.detail,
                                 "capability_ids": c.capability_ids, "evidence_ids": c.evidence_refs[:4]}
                                for c in ctx.arch_checks if c.check == "interface_change"],
-            architecture_docs=[{"evidence_id": ids.evidence_id("doc", "head", r.path, r.line, r.text), "path": r.path,
-                                "line": r.line, "text": r.text} for r in k.rules])
+            architecture_docs=[{"evidence_id": ids.evidence_id("doc", "base", r.path, r.line, r.text), "path": r.path,
+                                "line": r.line, "text": r.text,
+                                **({"source": "instructions", "applies_to": scope or "(whole repository)"}
+                                   if (scope := instruction_scope(r.path)) is not None else {})} for r in k.rules])
         draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, data, ws.head_root))
         notes.append(call_stats("PR", [draft]))
         if draft.status != "done":

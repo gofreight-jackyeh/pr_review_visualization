@@ -10,7 +10,7 @@ import { ARCH_GROUPS, groupChecks, ORIGIN_LABEL, archGroupOf } from "./arch"
 import { splitDetail, CHANGE_LABEL, CHECKLIST, COMPAT, interfaceChanges, groupByRing, KIND_LABEL, needsChecklist, RING } from "./interfaces"
 
 const CHECK_LABEL: Record<ArchCheck["check"], string> = {
-  interface_change: "對外介面變動", dependency_direction: "依賴方向", interface: "對外介面", placement: "放置位置", shared_mechanism: "共用機制", new_debt: "架構債", cycle: "循環依賴",
+  interface_change: "對外介面變動", dependency_direction: "依賴方向", interface: "對外介面", placement: "放置位置", shared_mechanism: "共用機制", new_debt: "架構債", cycle: "循環依賴", documented_rule: "文件規則",
 }
 
 export function RingChip({ ring }: { ring: ArchCheck["ring"] }) {

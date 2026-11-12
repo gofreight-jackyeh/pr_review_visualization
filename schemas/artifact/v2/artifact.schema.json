@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pr-explorer.local/schemas/artifact/v2/artifact.schema.json",
-  "$comment": "2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
+  "$comment": "2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
   "title": "PR Review Explorer Artifact v2",
   "description": "Two document kinds share one schema. system_map: the whole repository at one commit (cached per repo+commit, reused by every PR). pr_overlay: one PR laid over a system map. Structure comes from static analysis; Claude only writes Text items, each of which must cite evidence (spec v2 §5 Layer 7).",
   "oneOf": [
@@ -271,7 +271,7 @@
                    "flow_budget", "architecture_rules", "interfaces", "evidence", "semantic", "disclaimer"],
       "properties": {
         "kind": { "const": "system_map" },
-        "schema_version": { "const": "2.2.0" },
+        "schema_version": { "const": "2.3.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "system_map_id": { "$ref": "#/$defs/Id" },
         "generated_at": { "type": "string", "format": "date-time" },
@@ -415,7 +415,7 @@
         "rule_id": { "$ref": "#/$defs/Id", "description": "The ArchRule in the system map this check applies (absent for hypotheses)." },
         "origin": { "enum": ["documented", "inferred", "observed", "hypothesis"], "description": "observed = an interface change seen directly in the diff (no rule needed)." },
         "source": { "enum": ["static", "semantic"] },
-        "check": { "enum": ["interface_change", "dependency_direction", "interface", "placement", "shared_mechanism", "new_debt", "cycle"] },
+        "check": { "enum": ["interface_change", "dependency_direction", "interface", "placement", "shared_mechanism", "new_debt", "cycle", "documented_rule"], "description": "documented_rule = the PR may depart from a rule written in an instruction file (CLAUDE.md, AGENTS.md, .claude/rules)." },
         "ring": { "enum": ["outer", "middle", "inner"], "description": "Outermost ring this check concerns; the UI orders checks outer → inner." },
         "interface_change": {
           "type": "object", "additionalProperties": false,
@@ -496,7 +496,7 @@
                    "findings", "architecture_checks", "evidence", "semantic", "walkthrough"],
       "properties": {
         "kind": { "const": "pr_overlay" },
-        "schema_version": { "const": "2.2.0" },
+        "schema_version": { "const": "2.3.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "overlay_id": { "$ref": "#/$defs/Id" },
         "system_map_id": { "$ref": "#/$defs/Id" },

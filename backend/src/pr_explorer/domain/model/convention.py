@@ -7,11 +7,29 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class DocRule:
-    """A normative statement found in a repo document (README, ADR, docs/). Context for Claude, never a verified rule."""
+    """A normative statement found in a repo document (README, ADR, docs/, instruction files such as CLAUDE.md), read
+    at the PR's merge-base. Context for Claude, never a verified rule."""
 
     path: str
     line: int
     text: str
+
+
+INSTRUCTION_NAMES = ("CLAUDE.md", "AGENTS.md")
+
+
+def instruction_scope(path: str) -> str | None:
+    """Instruction files — written human / agent intent, rules throughout: CLAUDE.md and AGENTS.md at any depth (a nested
+    one governs its subtree), .claude/CLAUDE.md and .claude/rules/**/*.md. Returns the directory the file governs
+    ("" = the whole repository, else "dir/"), None for any other path. No other dot-directory is opened."""
+    parts = path.split("/")
+    if parts[0] == ".claude":
+        rest = parts[1:]
+        ok = rest == ["CLAUDE.md"] or (len(rest) >= 2 and rest[0] == "rules" and path.lower().endswith(".md"))
+        return "" if ok and not any(p.startswith(".") for p in rest) else None
+    if parts[-1] not in INSTRUCTION_NAMES or "node_modules" in parts or any(p.startswith(".") for p in parts):
+        return None
+    return "/".join(parts[:-1]) + "/" if len(parts) > 1 else ""
 
 
 @dataclass(frozen=True)

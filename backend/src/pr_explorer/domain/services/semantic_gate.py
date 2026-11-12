@@ -23,9 +23,10 @@ MAX_REFS = 6
 WALK_KEYS = ("system", "capabilities", "flows", "behavior", "impact", "questions")
 PHASE_MIN, PHASE_MAX = 3, 7  # spec v2 §4 "Flow 呈現（主軸）"
 PHASE_MIN_STEPS = 4  # shorter flows are not cut (the UI segments them by capability)
-HYPOTHESIS_CHECKS = {"interface_change", "dependency_direction", "interface", "placement", "shared_mechanism", "cycle"}
+HYPOTHESIS_CHECKS = {"interface_change", "dependency_direction", "interface", "placement", "shared_mechanism", "cycle",
+                     "documented_rule"}
 HYPOTHESIS_RING = {"dependency_direction": "middle", "interface": "middle", "cycle": "middle", "placement": "inner",
-                   "shared_mechanism": "inner"}
+                   "shared_mechanism": "inner", "documented_rule": "inner"}
 
 
 def _str(v: object, limit: int) -> str:

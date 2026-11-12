@@ -1,5 +1,6 @@
-"""Repo docs (README, CONTRIBUTING, docs/**/*.md, ADRs) → normative statements (architecture context for Claude, never
-verified rules) and excerpts that explain the system; user-provided context docs (spec §3); import-linter contracts."""
+"""Repo docs (README, CONTRIBUTING, docs/**/*.md, ADRs) and instruction files (CLAUDE.md / AGENTS.md at any depth,
+.claude/CLAUDE.md, .claude/rules/**/*.md) → normative statements (context for Claude, never verified rules) and excerpts
+that explain the system; user-provided context docs (spec §3); import-linter contracts."""
 
 from __future__ import annotations
 
@@ -7,7 +8,7 @@ import re
 from pathlib import Path
 
 from ...application.ports import ContextDoc, KnowledgeResult
-from ...domain.model.convention import DocExcerpt, DocRule, ImportContract, RepoSurface
+from ...domain.model.convention import DocExcerpt, DocRule, ImportContract, RepoSurface, instruction_scope
 from ..security.repo_files import read_repo_text
 from .import_linter import read_contracts
 from .repo_surface import scan_surface
@@ -24,6 +25,8 @@ MAX_EXCERPTS_TOTAL = 16_000
 
 
 def is_doc(path: str) -> bool:
+    if instruction_scope(path) is not None:
+        return True
     name = path.rsplit("/", 1)[-1]
     if "node_modules/" in path or path.startswith("."):
         return False
@@ -34,11 +37,18 @@ def is_doc(path: str) -> bool:
                                                 or DOC_NAMES.match(name) is not None)
 
 
-def extract_rules(text: str) -> list[tuple[int, str]]:
+def extract_rules(text: str, everywhere: bool = False) -> list[tuple[int, str]]:
+    """Normative lines under convention-like headings (or any bullet saying must / should / never …). `everywhere`
+    (instruction files, which are rules throughout): every bullet / numbered item, and any normative prose line."""
     rules: list[tuple[int, str]] = []
     in_section = False
     in_code = False
-    for i, line in enumerate(text.splitlines(), start=1):
+    lines = text.splitlines()
+    # YAML front matter (.claude/rules files may carry `paths:` lists): metadata, not rules
+    front = next((n for n in range(1, len(lines)) if lines[n].strip() == "---"), 0) + 1 if lines[:1] == ["---"] else 0
+    for i, line in enumerate(lines, start=1):
+        if i <= front:
+            continue
         if line.strip().startswith("```"):
             in_code = not in_code
             continue
@@ -52,14 +62,29 @@ def extract_rules(text: str) -> list[tuple[int, str]]:
         body = (b.group(1) if b else line).strip()
         if len(body) < 12:
             continue
-        if (in_section and b) or (NORMATIVE.search(body) and (b or in_section)):
+        if everywhere and not b and body.startswith(("|", "@", "<", ">")):
+            continue  # table rows, @imports, HTML / quotes: not a statement of intent
+        if (in_section and b) or (NORMATIVE.search(body) and (b or in_section or everywhere)) or (everywhere and b):
             rules.append((i, body[:400]))
     return rules
 
 
+def _depth(path: str) -> int:
+    scope = instruction_scope(path)
+    return path.count("/") if scope is None else scope.count("/")  # .claude/rules/x.md governs the root
+
+
+def _rule_rank(path: str) -> tuple:
+    """Rule budget: instruction files first (they are written intent), shallowest scope first; then README, docs."""
+    readme = "/" not in path and path.upper().startswith("README")
+    return (instruction_scope(path) is None, not readme, _depth(path), path)
+
+
 def _excerpt_rank(path: str) -> tuple:
-    top = "/" not in path
-    return (not (top and path.upper().startswith("README")), not top, path.count("/"), path)
+    """Excerpt budget: the root README first (system overview; the output language is detected from the first
+    excerpts), then instruction files ahead of generic docs."""
+    readme = "/" not in path and path.upper().startswith("README")
+    return (not readme, instruction_scope(path) is None, _depth(path), path)
 
 
 class LocalDocsKnowledge:
@@ -74,16 +99,21 @@ class LocalDocsKnowledge:
         sources: list[str] = []
         excerpts: list[DocExcerpt] = []
         budget = MAX_EXCERPTS_TOTAL
-        for path in sorted((p for p in files if is_doc(p)), key=_excerpt_rank):
+        readable: list[str] = []
+        for path in sorted((p for p in files if is_doc(p)), key=_rule_rank):
             text = read_repo_text(root, path, MAX_DOC_BYTES)
             if text is None:
                 continue  # a symlinked doc could pull files from outside the repository into the Claude prompt
-            found = extract_rules(text)
+            readable.append(path)
             sources.append(f"repo:{path}")
-            for line, body in found:
+            for line, body in extract_rules(text, everywhere=instruction_scope(path) is not None):
                 if len(rules) < MAX_RULES:
                     rules.append(DocRule(path, line, body))
-            if budget > 0 and text.strip():
+        for path in sorted(readable, key=_excerpt_rank):
+            if budget <= 0:
+                break
+            text = read_repo_text(root, path, MAX_DOC_BYTES)  # re-read: only the few files the budget reaches
+            if text and text.strip():
                 chunk = text[: min(MAX_EXCERPT_CHARS, budget)]
                 budget -= len(chunk)
                 excerpts.append(DocExcerpt(path, 1, len(chunk.splitlines()) or 1, chunk))

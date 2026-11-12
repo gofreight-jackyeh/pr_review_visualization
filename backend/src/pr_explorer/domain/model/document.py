@@ -10,7 +10,7 @@ from .changes import ChangedFile, Coverage
 from .finding import Finding
 from .graph import CodeRef, Evidence
 
-SCHEMA_VERSION = "2.2.0"
+SCHEMA_VERSION = "2.3.0"
 
 DISCLAIMER = (
     "Structure comes from static analysis (Python AST / TypeScript compiler) of the repository at one commit; "

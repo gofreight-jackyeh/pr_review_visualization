@@ -33,3 +33,17 @@ What is detected without configuration (`backend/src/pr_explorer/domain/services
 - **Published packages** — `package.json` not marked `"private": true` (or with `publishConfig`), `pyproject.toml` /
   `setup.cfg` without the `Private :: Do Not Upload` classifier; contract = top-level exports of the entry module.
 - **Outbound formats** — paths matching `OUTBOUND_PATTERNS` (EDI, webhooks, e-mail / notification templates).
+
+## Documented rules (no configuration)
+
+Repository documents are read from the PR's **base** commit too (`backend/src/pr_explorer/infrastructure/knowledge/local_docs.py`),
+so a PR cannot rewrite the rules that judge it:
+
+- **Instruction files** — `CLAUDE.md` and `AGENTS.md` at any depth (a nested one applies to its directory), `.claude/CLAUDE.md`
+  and `.claude/rules/**/*.md`. Every bullet, numbered item and normative line counts as a rule (YAML front matter is skipped).
+  No other dot-directory is read. Claude may raise a *needs confirmation* hypothesis when a changed file seems to depart
+  from one, citing the rule's `file:line`.
+- **Other docs** — `README`, `CONTRIBUTING`, `CONVENTIONS`, `STYLEGUIDE`, `ARCHITECTURE`, `docs/**`, ADRs: only lines under
+  convention-like headings or saying must / should / never.
+- A PR that adds, edits or deletes an instruction file gets a static finding (`documented_rules_changed`).
+- Symlinked docs are never followed; at most 25 rules (instruction files first) and 16,000 characters of excerpts are used.
