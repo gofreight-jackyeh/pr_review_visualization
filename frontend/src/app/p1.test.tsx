@@ -118,6 +118,8 @@ describe("relation view + detail panel", () => {
 describe("審查重點 cards", () => {
   it("lead with what to confirm; one status from the data; source is separate", async () => {
     const root = await mount("sample", "#review")
+    expect(tid(root, "finding-fd:race")).toBeNull() // 結構事實 start collapsed
+    await click(tid(root, "facts-toggle"))
     const race = tid(root, "finding-fd:race")!
     expect(race.querySelector(".rc-confirm")!.textContent).toBe("需確認：折扣碼使用次數的更新沒有包在交易裡")
     expect(race.querySelectorAll(".status-badge").length).toBe(1)
@@ -126,9 +128,13 @@ describe("審查重點 cards", () => {
     expect(race.textContent).toContain("app/discounts/services.py")
     expect(race.querySelector("[data-testid=diff-link]")?.getAttribute("href")).toBe("https://github.com/acme/shop/pull/482/files#diff-d813cb099583520c30550e6ce8d323ab754bd19e6c1d1b31afc564a935071ef3R61")
     expect([...race.querySelectorAll("a")].some((a) => a.getAttribute("href")!.includes("github.com/acme/shop/blob/"))).toBe(true)
-    // findings grouped by status, not by source
-    expect(tid(root, "findings-needs_confirmation")!.querySelectorAll(".review-card").length).toBe(2)
-    expect(tid(root, "findings-confirmed")!.querySelectorAll(".review-card").length).toBe(2)
+    // findings grouped by status, not by source: questions lead, verified facts sit in the second layer
+    expect(tid(root, "focus-list")!.querySelectorAll("[data-testid^=finding-]").length).toBe(2)
+    expect(tid(root, "facts-findings")!.querySelectorAll(".review-card").length).toBe(2)
+    // an AI finding backed by a written rule says so, with its kind as text
+    expect(tid(root, "rule-fd:stack")!.textContent).toBe("依據已記錄的規則：.claude/rules/discounts.md:8")
+    expect(tid(root, "tag-fd:stack")!.textContent).toBe("需要人或 PM 決定")
+    expect(tid(root, "finding-fd:stack")!.textContent).not.toContain("靜態規則")
     // a static interface change whose compatibility is unknown is 無法判定, not 已確認
     const receipt = tid(root, "arch-ac:if-receipt")!
     expect(receipt.querySelector(".source-note")!.textContent).toBe("來源：靜態分析")

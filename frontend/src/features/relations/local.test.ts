@@ -59,15 +59,18 @@ describe("change cards", () => {
 })
 
 describe("related checks", () => {
-  const ref = (path: string, line: number) => ({ side: "head" as const, path, start_line: line })
   const items: ReviewItem[] = [
-    { id: "a", title: "A", kind: "check", ruleId: "r1", refs: [ref("x.py", 3)] },
-    { id: "b", title: "B", kind: "check", ruleId: "r1", refs: [ref("y.py", 9)] },
-    { id: "c", title: "C", kind: "finding", refs: [ref("x.py", 3)] },
-    { id: "d", title: "A（同義但沒有連結）", kind: "finding", refs: [ref("x.py", 4)] },
+    { id: "a", title: "A", kind: "check", ruleId: "r1", rules: [], checks: [] },
+    { id: "b", title: "B", kind: "check", ruleId: "r1", rules: [], checks: [] },
+    { id: "c", title: "C", kind: "finding", rules: ["ev:doc:claude-12"], checks: [] },
+    { id: "e", title: "E", kind: "finding", rules: ["ev:doc:claude-12"], checks: ["ev:static:race"] },
+    { id: "f", title: "F", kind: "finding", rules: [], checks: ["ev:static:race"] },
+    // same code location as A in the data, but no shared rule or check: never related
+    { id: "d", title: "A（同義但沒有連結）", kind: "finding", rules: [], checks: [] },
   ]
-  it("links only through the same rule or the same code location — no semantic de-duplication", () => {
-    expect(relatedOf(items, "a")).toEqual([{ id: "b", title: "B", via: "same_rule" }, { id: "c", title: "C", via: "same_location" }])
+  it("links only through the same rule or the same check — never shared code locations, no semantic de-duplication", () => {
+    expect(relatedOf(items, "a")).toEqual([{ id: "b", title: "B", via: "same_rule" }])
+    expect(relatedOf(items, "e")).toEqual([{ id: "c", title: "C", via: "same_rule" }, { id: "f", title: "F", via: "same_check" }])
     expect(relatedOf(items, "d")).toEqual([])
   })
 })

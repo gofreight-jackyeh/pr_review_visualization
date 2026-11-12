@@ -9,9 +9,9 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
+from ..model.ids import parse_file_cite
 from .semantic_digest import code_first
 
 QUESTION_MAX = 2000
@@ -25,7 +25,6 @@ MAX_REFS = 4
 LIST_CAPS = {"behavior_changes": 20, "findings": 30, "architecture_checks": 30, "flows_touched": 12, "changed_files": 120,
              "capabilities": 60}
 STEPS_PER_FLOW = 25
-_LINE = re.compile(r"^(file:.+):(\d{1,7})$")
 
 
 def _t(v: Any) -> str | None:
@@ -208,10 +207,11 @@ def cite_index(overlay: dict, smap: dict) -> dict[str, dict]:
 def resolve_cite(cite: str, index: dict[str, dict]) -> dict | None:
     if cite in index:
         return index[cite]
-    m = _LINE.match(cite)  # file:<path>:<line> — one line of a changed file
-    if m and index.get(m.group(1), {}).get("kind") == "file":
-        base = index[m.group(1)]
-        return {**base, "id": cite, "refs": [{**base["refs"][0], "start_line": int(m.group(2))}]}
+    got = parse_file_cite(cite)  # file:<path>:<line>[-<end>] — a line (range) of a changed file
+    if got and index.get(got[0], {}).get("kind") == "file":
+        base = index[got[0]]
+        line = {"start_line": got[1], **({"end_line": got[2]} if got[2] else {})}
+        return {**base, "id": cite, "refs": [{**base["refs"][0], **line}]}
     return None
 
 

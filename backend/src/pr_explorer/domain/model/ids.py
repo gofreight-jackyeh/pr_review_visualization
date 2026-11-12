@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 
 def short_hash(*parts: object, length: int = 10) -> str:
@@ -33,6 +34,19 @@ def edge_id(kind: str, source: str, target: str) -> str:
 
 def file_id(path: str) -> str:
     return f"file:{path}"
+
+
+_FILE_CITE = re.compile(r"^(file:.+?):(\d{1,7})(?:-(\d{1,7}))?$")
+
+
+def parse_file_cite(cite: str) -> tuple[str, int, int | None] | None:
+    """`file:<path>:<start>[-<end>]` (a line or line range of a changed file, as Claude cites it) →
+    (file id, start, end or None); None for any other cite."""
+    m = _FILE_CITE.match(cite)
+    if not m:
+        return None
+    start, end = int(m.group(2)), int(m.group(3)) if m.group(3) else None
+    return m.group(1), start, (end if end is not None and end > start else None)
 
 
 def evidence_id(kind: str, side: str, path: str, line: int, *discriminator: object) -> str:

@@ -4,6 +4,10 @@ Claude only writes text. Every statement must cite IDs that exist — element ID
 flow, step, changed file...) or evidence IDs; a statement citing an unknown ID, or citing nothing, is dropped and
 counted in `semantic.dropped_claims`. Cited element IDs are resolved to that element's evidence, so every stored
 Text carries evidence_refs. Anything that is not text (structure, grouping, new IDs) is ignored by construction.
+
+PR statements may also cite `file:<changed path>:<start>[-<end>]`: accepted only inside one of that file's changed
+hunks (± CITE_MARGIN lines), capped at MAX_CITE_LINES; such a cite counts as citing the file. Findings and architecture
+hypotheses with accepted precise cites show those locations instead of the whole cited elements' evidence.
 """
 
 from __future__ import annotations
@@ -12,10 +16,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..model.changes import ChangedFile
+from ..model.convention import instruction_scope
 from ..model.document import ArchCheck, BehaviorChange, InterfaceChange, Phase, SystemMap, Text
 from ..model.finding import Finding
 from ..model.graph import CodeRef, Evidence
-from ..model.ids import short_hash
+from ..model.ids import parse_file_cite, short_hash
 
 SEVERITIES = {"info", "attention", "warning"}
 LIMITS = {"name": 80, "label": 240, "description": 600, "summary": 1500, "body": 1500, "title": 200}
@@ -25,6 +30,13 @@ PHASE_MIN, PHASE_MAX = 3, 7  # spec v2 §4 "Flow 呈現（主軸）"
 PHASE_MIN_STEPS = 4  # shorter flows are not cut (the UI segments them by capability)
 HYPOTHESIS_CHECKS = {"interface_change", "dependency_direction", "interface", "placement", "shared_mechanism", "cycle",
                      "documented_rule"}
+CITE_MARGIN = 3  # lines around a hunk a precise cite may still point at (context of the change)
+MAX_CITE_LINES = 30  # longer cited ranges are cut to their first MAX_CITE_LINES lines
+MAX_PRECISE = 3  # own locations kept per finding / hypothesis
+# what a finding is about (prompts/pr.md "focus"); stored as Finding.rule "semantic_review:<focus>"
+FOCUS = ("human_decision", "release_dependency", "public_contract", "responsibility_boundary", "convention",
+         "claim_needs_proof")
+SEVERITY_UP = {"info": "attention", "attention": "warning", "warning": "warning"}
 HYPOTHESIS_RING = {"dependency_direction": "middle", "interface": "middle", "cycle": "middle", "placement": "inner",
                    "shared_mechanism": "inner", "documented_rule": "inner"}
 
@@ -44,14 +56,53 @@ def _list(v: object) -> list[dict]:
     return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
 
 
-class Resolver:
-    """Turns cited IDs into evidence IDs. `elements` maps element id -> its evidence_refs."""
+def hunk_ranges(f: ChangedFile) -> list[tuple[int, int]]:
+    """Changed line ranges of a file on the side it is read from (head; base for a removed file)."""
+    removed = f.status == "removed"
+    out = []
+    for h in f.hunks:
+        start, n = (h.old_start, h.old_lines) if removed else (h.new_start, h.new_lines)
+        out.append((max(start, 1), max(start, 1) + max(n, 1) - 1))
+    return out
 
-    def __init__(self, elements: dict[str, list[str]], evidence: set[str]):
+
+class Resolver:
+    """Turns cited IDs into evidence IDs. `elements` maps element id -> its evidence_refs. With `files` (PR statements),
+    `file:<path>:<start>[-<end>]` cites inside a changed hunk are accepted as precise locations (see `split`)."""
+
+    def __init__(self, elements: dict[str, list[str]], evidence: set[str], files: list[ChangedFile] | None = None):
         self.elements = elements
         self.evidence = evidence
+        self.files = {f.id: f for f in files or []}
         self.dropped = 0
         self.reasons: list[str] = []
+
+    def split(self, cites: list[str], what: str) -> tuple[list[str], list[CodeRef]]:
+        """Precise file-line cites → (cites with each accepted one replaced by its file id, the accepted locations).
+        A precise cite outside the file's changed hunks, or of an unknown file, is dropped (the statement keeps its
+        other cites)."""
+        if not self.files:
+            return cites, []
+        out: list[str] = []
+        refs: list[CodeRef] = []
+        for c in cites:
+            got = parse_file_cite(c) if c not in self.elements else None
+            if got is None:
+                out.append(c)
+                continue
+            fid, start, end = got
+            f = self.files.get(fid)
+            end = min(end or start, start + MAX_CITE_LINES - 1)
+            if f is None or not any(lo - CITE_MARGIN <= start and end <= hi + CITE_MARGIN for lo, hi in hunk_ranges(f)):
+                self.drop(f"{what}: location {c[:120]} is not inside a changed hunk")
+                continue
+            side, path = f.side_path
+            ref = CodeRef(side, path, start, end if end > start else None)
+            if ref not in refs:
+                refs.append(ref)
+            if fid not in out:
+                out.append(fid)
+        return out, refs
 
     def drop(self, why: str) -> None:
         self.dropped += 1
@@ -60,6 +111,7 @@ class Resolver:
 
     def resolve(self, cites: list[str], what: str) -> list[str] | None:
         """Evidence refs for the cited IDs, or None (and the claim is counted as dropped)."""
+        cites, _ = self.split(cites, what)
         unknown = [c for c in cites if c not in self.elements and c not in self.evidence]
         if unknown:
             self.drop(f"{what}: cites unknown id(s) {', '.join(unknown[:3])}")
@@ -237,8 +289,13 @@ def _changed_files_for(refs: list[CodeRef], files: list[ChangedFile]) -> list[st
 def gate_pr(payload: dict, known: PrKnown) -> PrSemantic:
     if not isinstance(payload, dict):
         raise ValueError("reply is not a JSON object")
-    r = Resolver(known.elements, set(known.evidence))
+    r = Resolver(known.elements, set(known.evidence), known.files)
     out = PrSemantic()
+
+    def rule_backed(refs_ev: list[str]) -> bool:
+        """Cites a rule written in an instruction file (CLAUDE.md, AGENTS.md, .claude/rules)."""
+        return any(known.evidence[e].kind == "doc" and any(instruction_scope(x.path) is not None for x in known.evidence[e].refs)
+                   for e in refs_ev)
 
     def text_of(obj: object, what: str, limit: int, extra: list[str] = ()) -> Text | None:
         if not isinstance(obj, dict):
@@ -271,22 +328,27 @@ def gate_pr(payload: dict, known: PrKnown) -> PrSemantic:
         if bad:
             r.drop(f"finding '{title[:60]}': unknown capability/flow {', '.join(bad[:3])}")
             continue
-        refs_ev = r.resolve(_ids(fd.get("cites")), f"finding '{title[:60]}'")
+        cites, precise = r.split(_ids(fd.get("cites")), f"finding '{title[:60]}'")
+        refs_ev = r.resolve(cites, f"finding '{title[:60]}'")
         if refs_ev is None:
             continue
-        refs = [ref for e in refs_ev for ref in known.evidence[e].refs][:5]
+        refs = precise[:MAX_PRECISE] or [ref for e in refs_ev for ref in known.evidence[e].refs][:5]
         files = _changed_files_for(refs, known.files)  # only evidence located in a changed file links the finding
         if not refs or not files:
             r.drop(f"finding '{title[:60]}': not linked to a changed file with path:line evidence")
             continue
         sev = fd.get("severity") if fd.get("severity") in SEVERITIES else "attention"
+        if rule_backed(refs_ev):
+            sev = SEVERITY_UP[sev]  # a written rule of this repository backs the question
+        focus = fd.get("focus") if fd.get("focus") in FOCUS else None
         fid = f"finding:semantic:{short_hash(title, *refs_ev)}"
         if any(f.id == fid for f in out.findings):
             continue  # Claude repeated itself
         out.findings.append(Finding(
             id=fid, source="semantic", title=title, description=_str(fd.get("description"), LIMITS["body"]),
             severity=sev, status="needs_confirmation", changed_file_ids=files, node_ids=[], refs=refs,
-            evidence_refs=refs_ev, rule="semantic_review", capability_ids=caps, flow_ids=flows,
+            evidence_refs=refs_ev, rule=f"semantic_review:{focus}" if focus else "semantic_review", capability_ids=caps,
+            flow_ids=flows,
             business_impact=_str(fd.get("business_impact"), LIMITS["description"]) or None,
         ))
 
@@ -330,15 +392,16 @@ def gate_pr(payload: dict, known: PrKnown) -> PrSemantic:
                 check == "interface_change" and iface not in known.interfaces):
             r.drop(f"architecture_hypothesis {i}: missing title, unknown check, capability or interface")
             continue
-        refs_ev = r.resolve(_ids(h.get("cites")), f"architecture_hypothesis '{title[:60]}'")
+        cites, precise = r.split(_ids(h.get("cites")), f"architecture_hypothesis '{title[:60]}'")
+        refs_ev = r.resolve(cites, f"architecture_hypothesis '{title[:60]}'")
         if refs_ev is None:
             continue
         refs = [ref for e in refs_ev for ref in known.evidence[e].refs]
-        pr_refs = [x for x in refs if _changed_files_for([x], known.files)][:5]
+        pr_refs = precise[:MAX_PRECISE] or [x for x in refs if _changed_files_for([x], known.files)][:5]
         if not pr_refs:
             r.drop(f"architecture_hypothesis '{title[:60]}': not linked to a changed file with path:line evidence")
             continue
-        existing = [x for x in refs if x not in pr_refs][:5]
+        existing = [x for x in refs if x not in pr_refs and not _changed_files_for([x], known.files)][:5]
         verdict = h.get("verdict") if h.get("verdict") in ("violates", "unclear") else "unclear"
         detail = _str(h.get("description"), LIMITS["body"]) or title
         out.hypotheses.append(ArchCheck(

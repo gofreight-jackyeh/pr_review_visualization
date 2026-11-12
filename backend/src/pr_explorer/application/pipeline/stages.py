@@ -636,7 +636,13 @@ class Pipeline:
         res = propagate_impact(g.nodes, g.edges, self.d.config.impact_max_depth, self.d.config.impact_max_nodes)
         # documented rules come from the merge-base: a PR cannot rewrite the rules that judge it (its edits to them
         # are a static finding, documented_rules_changed)
-        ctx.knowledge = self.d.knowledge.collect(ws.base_root, ws.base_files, ctx.request.context_docs)
+        # instruction rules are chosen by the PR's changed paths and the capabilities it touches (budget, relevance)
+        touched = {f.capability_id for f in ctx.files if f.capability_id}
+        topics = [t for c in (ctx.map_doc or {}).get("capabilities", []) if c["id"] in touched
+                  for t in (c.get("technical_name") or "", (c.get("business_name") or {}).get("text") or "", c.get("path") or "")]
+        ctx.knowledge = self.d.knowledge.collect(ws.base_root, ws.base_files, ctx.request.context_docs,
+                                                 changed={f.path for f in ctx.files} | {f.old_path for f in ctx.files if f.old_path},
+                                                 topics=topics)
         ctx.lang = self.d.config.language(ctx.pr.title, ctx.pr.body, *(d.text for d in ctx.knowledge.excerpts[:2]))
         findings, fev = find_static_issues(g, ctx.files, ctx.lang)
         b.map_findings(findings, ctx.flow_nodes, ctx.lang)
@@ -751,7 +757,7 @@ class Pipeline:
         decision, tier = decide(ctx.request.semantic_mode, result)
         sources = list(dict.fromkeys(["pr:metadata", "pr:diff"] + k.sources))
         flight = ctx.map_flight
-        notes: list[str] = []
+        notes: list[str] = list(k.notes)
         if tier != "none" or (flight is not None and not flight.final.done()):
             notes.append(self._publish_static(ctx, tier, decision, sources))
         if flight is not None:

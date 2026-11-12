@@ -79,8 +79,9 @@ def test_overlay_content(shop_docs):
     assert any(s["evidence_status"] == "possible" and s.get("branch") for s in checkout["steps"])
     assert {e["technical_name"] for e in ov["head_additions"]["entities"]} == {"DiscountCode"}
     rules = {f["rule"] for f in ov["findings"] if f["source"] == "static" and f["status"] == "verified"}
-    assert {"call_signature_mismatch", "model_field_without_migration", "removed_symbol_still_referenced",
-            "view_missing_sibling_decorator"} <= rules
+    assert {"call_signature_mismatch", "model_field_without_migration", "removed_symbol_still_referenced"} <= rules
+    # a sibling-decorator pattern is a question, not a verified fact
+    assert {f["status"] for f in ov["findings"] if f["rule"] == "view_missing_sibling_decorator"} == {"needs_confirmation"}
     sig = next(f for f in ov["findings"] if f["rule"] == "call_signature_mismatch")
     assert sig["capability_ids"] == ["cap:orders"] and "flow:py:orders/tasks.py::reorder_last" in sig["flow_ids"]
     assert sig["business_impact"]
@@ -334,7 +335,7 @@ def test_partially_explained_map_is_rebuilt_and_map_tier_is_fixed(shop_repo, hom
     def flaky(args, prompt):
         if call_kind(args) == "system_map":
             seen["map"] += 1
-            assert args[args.index("--max-turns") + 1] == "8"  # standard, whatever the request's mode
+            assert args[args.index("--max-turns") + 1] == "9"  # standard (8) + 1 structured-output turn, whatever the request's mode
             if seen["map"] == 2:
                 return RunResult(1, "", "rate limited")
         return smart(args, prompt)

@@ -288,6 +288,7 @@ class _Builder:
             language="python", tags=["django"] if kind in ("view", "task") else [],
             meta={"hash": f.hash, "dotted": f"{mod.dotted}.{f.qualname}", "signature": f.signature,
                   "decorators": f.decorators, "is_class": False, "drf": kind == "view" and "api_view" in f.decorators,
+                  **({"uses_request_user": True} if kind == "view" and f.uses_param_user else {}),
                   **({"api_methods": f.api_methods} if f.api_methods is not None else {})},
         ))
 

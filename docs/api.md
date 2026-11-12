@@ -32,8 +32,9 @@ Start (or reuse) an analysis.
   Schema 2.1.0 adds two Claude steps after the capability texts, run in parallel: the domain assignment (reused when
   the donor's set of business capabilities is identical; otherwise only this step is re-asked) and flow phases
   (reused per flow when its step IDs are unchanged). Stored 2.0.0 maps are valid donors: they simply have no domains
-  or phases. Engineering capabilities are not sent to Claude. Any Claude reply that is unparseable or wrongly shaped
-  is retried once before the step is marked failed; a rejected domain assignment is retried once with the
+  or phases. Engineering capabilities are not sent to Claude. Every Claude call passes `--json-schema` with its reply
+  shape (structured output; a CLI that rejects the flag is called without it). Any Claude reply that is unparseable or
+  wrongly shaped is retried once before the step is marked failed; a rejected domain assignment is retried once with the
   validator's problems, then the static domains stay (one per top-level directory; in a system of ≥ 12 business
   capabilities where one directory holds more than half, its sub-directories instead; at most 10, the smallest merged).
 - Architecture rules (map) are import-linter contracts from `.importlinter`, `.importlinter.ini`, `setup.cfg` or
@@ -61,7 +62,7 @@ Response `202` (or `200` when cached):
 
 ## GET /api/analyses
 
-Recent analyses, newest first: `[{ analysis_id, status, title, repo, head_sha, created_at, overlay_id, system_map_id }]`.
+Recent analyses, newest first: `[{ analysis_id, status, title, repo, head_sha, created_at, overlay_id, system_map_id, queue_position }]`; `queue_position` is 1, 2, … for `queued` analyses (1 = next to start), otherwise `null`. Analyses run `PR_EXPLORER_WORKERS` at a time (default 2, 1–32). JSON responses are gzip-compressed when the client sends `Accept-Encoding: gzip`.
 
 ## GET /api/analyses/{analysis_id}
 
@@ -93,7 +94,10 @@ Returns the system map JSON.
 
 ## GET /api/overlays/{overlay_id}
 
-Returns the PR overlay JSON. Its `system_map_id` names the map to load with it.
+Returns the PR overlay JSON. Its `system_map_id` names the map to load with it. A Claude finding's `rule` is
+`semantic_review` or `semantic_review:<focus>` (`human_decision | release_dependency | public_contract |
+responsibility_boundary | convention | claim_needs_proof`); its `refs` are the changed lines it cites itself when it
+cites any (`file:<path>:<start>-<end>`, inside a changed hunk ± 3 lines, at most 30 lines).
 
 ## GET /api/overlays/{overlay_id}/freshness
 
@@ -142,7 +146,7 @@ fails with a message to analyze the PR locally first.
 
 The reply must be `{"answer": "<markdown>", "cites": ["file:…", "ev:…", "flow:…", …]}` (retried once when it is not).
 Cites are kept only when they are IDs of that overlay or its system map (elements, steps, findings, architecture
-checks, behavior changes, evidence, changed files, `pr`) or `file:<changed path>:<line>`; the rest are listed in
+checks, behavior changes, evidence, changed files, `pr`) or `file:<changed path>:<line>[-<end>]`; the rest are listed in
 `dropped`. An answer with no valid cite is kept with `unsupported: true` (the UI shows 「未附來源，請自行確認」). The
 question and the answer are scrubbed for secrets before they are stored.
 

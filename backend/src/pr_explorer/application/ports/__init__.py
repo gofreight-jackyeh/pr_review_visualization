@@ -13,7 +13,7 @@ from ...domain.model.semantic import SemanticDraft
 
 # Bump on ANY change that alters analysis output (prompts, caps, rules, detection): it is part of every cache key,
 # so forgetting it serves stale results. Claude texts still carry over across versions via map reuse.
-ANALYZER_VERSION = "2.3.0"
+ANALYZER_VERSION = "2.4.0"
 
 
 class SourceError(RuntimeError):
@@ -130,10 +130,14 @@ class KnowledgeResult:
     sources: list[str]  # human-readable source names (repo doc paths, context:<name>)
     context_rules: list[str] = field(default_factory=list)  # normative lines from user-provided docs
     excerpts: list[DocExcerpt] = field(default_factory=list)  # README / docs text explaining the system
+    notes: list[str] = field(default_factory=list)  # what the rule budget left out (shown in the stage message)
 
 
 class KnowledgeSource(Protocol):
-    def collect(self, root: Path, files: set[str], context_docs: list[ContextDoc]) -> KnowledgeResult: ...
+    # changed: the PR's changed paths (None outside a PR); topics: names of the capabilities it touches. Both only
+    # select which instruction rules (CLAUDE.md, AGENTS.md, .claude/rules) fit the budget.
+    def collect(self, root: Path, files: set[str], context_docs: list[ContextDoc], changed: set[str] | None = None,
+                topics: list[str] = ()) -> KnowledgeResult: ...
     # machine-checkable architecture contracts (import-linter) + parse notes
     def contracts(self, root: Path, files: set[str]) -> tuple[list[ImportContract], list[str]]: ...
     # client-facing surface: .pr-explorer.yml, web app routes, packages with their exports (spec §8 outer ring)

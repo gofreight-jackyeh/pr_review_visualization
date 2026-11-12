@@ -1,4 +1,5 @@
-"""Verifiable technical findings (spec §8). Only emits what the graph proves; status=verified."""
+"""Technical findings (spec §8). What the graph proves is status=verified; a departure from a sibling pattern
+(view_missing_sibling_decorator) is only a question for the reviewer (needs_confirmation)."""
 
 from __future__ import annotations
 
@@ -70,7 +71,7 @@ class _Ctx:
         fid = f"finding:{rule}:{key}"
         if any(f.id == fid for f in self.findings):
             return
-        self.findings.append(Finding(id=fid, source="static", rule=rule, status="verified", **kw))
+        self.findings.append(Finding(id=fid, source="static", rule=rule, **{"status": "verified", **kw}))
 
 
 def _removed_still_referenced(c: _Ctx) -> None:
@@ -184,7 +185,18 @@ def view_groups(g: Graph) -> dict[str, list[Node]]:
     return {k: sorted(v, key=lambda n: n.id) for k, v in groups.items()}
 
 
+def own_data_only(view: Node) -> bool:
+    """A function view whose only parameter is the request (no URL parameter naming an object) and that reads
+    `request.user`: it acts on the requesting user's own data (a profile page), so a permission decorator its
+    siblings need for other people's objects is not expected."""
+    sig = view.meta.get("signature") or {}
+    return bool(view.meta.get("uses_request_user")) and len(sig.get("positional", [])) <= 1 and not (
+        sig.get("kwonly") or sig.get("vararg") or sig.get("kwarg"))
+
+
 def _view_missing_decorator(c: _Ctx) -> None:
+    """A sibling pattern, not a proof: the finding is a question (needs_confirmation). Permission-like decorators are
+    not expected on views that only act on the requesting user's own data."""
     for path, views in sorted(view_groups(c.graph).items()):
         if len(views) < 3:
             continue
@@ -196,24 +208,30 @@ def _view_missing_decorator(c: _Ctx) -> None:
             for v in views:
                 if v.change_status not in {"added", "modified"} or d in v.meta.get("decorators", []):
                     continue
+                if "permission" in d.lower() and own_data_only(v):
+                    continue
                 vref = _ref(v, "head")
                 if vref is None:
                     continue
                 ev = c.ev("head", vref.path, vref.start_line, f"{v.label} has no @{d}; {len(holders)}/{len(views)} sibling views do", d)
                 c.add(
                     "view_missing_sibling_decorator", f"{v.id}:{d}",
-                    title=(f"{v.label} 缺少同檔其他 view 都有的 @{d}" if c.zh else f"{v.label} lacks @{d} used by its sibling views"),
+                    title=(f"{v.label} 是否也需要同檔多數 view 都有的 @{d}？" if c.zh else
+                           f"Does {v.label} also need @{d}, used by most of its sibling views?"),
                     description=(
                         f"{path} 的 {len(views)} 個 view 中有 {len(holders)} 個加了 @{d}"
-                        f"（{'、'.join(h.label for h in holders[:4])}）；這個 PR 修改的 {v.label} 沒有加。" if c.zh else
+                        f"（{'、'.join(h.label for h in holders[:4])}）；這個 PR 修改的 {v.label} 沒有加。"
+                        "這只是同檔的慣例，不代表一定要加：請確認它是否刻意不需要。" if c.zh else
                         f"{len(holders)} of {len(views)} views in {path} are decorated with @{d} "
-                        f"({', '.join(h.label for h in holders[:4])}); {v.label}, changed in this PR, is not."
+                        f"({', '.join(h.label for h in holders[:4])}); {v.label}, changed in this PR, is not. "
+                        "This is only the file's pattern: confirm whether it is intentionally left out."
                     ),
                     severity="attention",
                     changed_file_ids=c.file_ids(path),
                     node_ids=[v.id] + [h.id for h in holders[:3]],
                     refs=[vref] + [r for h in holders[:2] if (r := _ref(h, "head"))],
                     evidence_refs=[ev] + v.evidence_refs[:1],
+                    status="needs_confirmation",
                 )
 
 

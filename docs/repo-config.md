@@ -46,4 +46,10 @@ so a PR cannot rewrite the rules that judge it:
 - **Other docs** — `README`, `CONTRIBUTING`, `CONVENTIONS`, `STYLEGUIDE`, `ARCHITECTURE`, `docs/**`, ADRs: only lines under
   convention-like headings or saying must / should / never.
 - A PR that adds, edits or deletes an instruction file gets a static finding (`documented_rules_changed`).
-- Symlinked docs are never followed; at most 25 rules (instruction files first) and 16,000 characters of excerpts are used.
+- Instruction rules are chosen per PR, with their own budget (40 rules / 12,000 characters, plus up to 60 scoped ones):
+  a nested `CLAUDE.md` / `AGENTS.md` is used only when the PR changes a file under its directory, and then all its rules
+  are kept; a `.claude/rules` file with `paths:` / `globs:` front matter likewise only when a changed path matches. The
+  rest are ranked by how many words of the changed paths and touched capability names appear in the rule file's path,
+  its headings and the rule itself. What is left out is listed in the `semantic` stage message.
+- A Claude finding that cites such a rule is shown 「依據已記錄的規則：file:line」 and raised one severity level.
+- Symlinked docs are never followed; at most 25 other-doc rules and 16,000 characters of excerpts are used.

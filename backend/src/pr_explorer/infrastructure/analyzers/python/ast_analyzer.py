@@ -120,6 +120,7 @@ class FuncInfo:
     events: list = field(default_factory=list)  # CallRec | StmtRec in source order
     class_name: str | None = None
     api_methods: list[str] | None = None  # DRF @api_view(["GET", ...]); [] = @api_view without a list (GET)
+    uses_param_user: bool = False  # the body reads `<first param>.user` (a view acting on request.user)
 
 
 @dataclass
@@ -412,8 +413,11 @@ def _func_info(fn: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str, is_met
     for d in fn.decorator_list:
         if decorator_name(d) == "api_view":
             api = [m.upper() for m in (_str_list(d.args[0]) or [])] if isinstance(d, ast.Call) and d.args else []
+    uses_user = first is not None and any(
+        isinstance(n, ast.Attribute) and n.attr == "user" and isinstance(n.value, ast.Name) and n.value.id == first
+        for stmt in fn.body for n in ast.walk(stmt))
     return FuncInfo(fn.name, qualname, fn.lineno, fn.end_lineno or fn.lineno, decs, signature(fn, is_method, decs),
-                    node_hash(fn), first, rec.events, class_name, api)
+                    node_hash(fn), first, rec.events, class_name, api, uses_user)
 
 
 def _beat_entries(value: ast.expr) -> list[tuple[str, str, int]]:

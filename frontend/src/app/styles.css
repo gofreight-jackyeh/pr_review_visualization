@@ -296,3 +296,19 @@ button.ask-open.on { background: var(--accent); color: #fff; }
 .ask-form textarea { width: 100%; resize: vertical; min-height: 64px; max-height: 40vh; }
 .ask-ctx { margin: 0; } .ask-ctx .chip-tag { white-space: normal; }
 .chip-x { border: 0; background: none; padding: 0 2px 0 6px; font-size: .8rem; color: inherit; }
+
+/* ---- flow axis: long English / unbroken titles wrap instead of being clipped or spilling into the next card (speed/feedback fixes) ---- */
+.ax-col { min-width: 170px; flex: 0 1 220px; }
+.ax-seg { overflow-wrap: anywhere; white-space: normal; min-width: 0; }
+.ax-above .chip-tag, .ax-above .chip, .ax-below span { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.step .lbl { overflow-wrap: anywhere; }
+
+/* ---- 審查重點 layers (review focus quality): questions for a person first; verified static facts quiet, not outranking them ---- */
+.review .sb-confirmed { color: #475569; border-color: #cbd5e1; background: #f8fafc; font-weight: 500; }
+.review .sb-confirmed > [aria-hidden] { display: none; }
+.rc-tag { font-size: .8rem; font-weight: 600; color: #334155; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 6px; margin-left: 6px; white-space: nowrap; }
+.rc-rule { margin: 2px 0 6px; font-weight: 600; }
+.rc-rule code { margin-left: 4px; }
+.review-counts { color: var(--muted); margin-top: -4px; }
+.review-facts { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--line); }
+.review-facts h4 { margin: 14px 0 6px; }

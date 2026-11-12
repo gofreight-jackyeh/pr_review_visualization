@@ -1187,8 +1187,10 @@
         }
       ],
       "evidence_refs": [
-        "ev:comp:validate_code"
-      ]
+        "ev:comp:validate_code",
+        "ev:doc:rule-discounts"
+      ],
+      "rule": "semantic_review:human_decision"
     },
     {
       "id": "fd:receipt",
@@ -1213,7 +1215,8 @@
       ],
       "evidence_refs": [
         "ev:diff:notifications"
-      ]
+      ],
+      "rule": "semantic_review:public_contract"
     }
   ],
   "evidence": [
@@ -1657,6 +1660,22 @@
       "producer": {
         "name": "static-analyzer",
         "version": "2.2.0"
+      }
+    },
+    {
+      "id": "ev:doc:rule-discounts",
+      "kind": "doc",
+      "description": "Documented in .claude/rules/discounts.md:8",
+      "refs": [
+        {
+          "side": "base",
+          "path": ".claude/rules/discounts.md",
+          "start_line": 8
+        }
+      ],
+      "producer": {
+        "name": "repo_docs",
+        "version": "1"
       }
     }
   ],

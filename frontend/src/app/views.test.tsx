@@ -117,8 +117,8 @@ describe("browser back / forward", () => {
     await click(tid(root, "go-changes"))
     expect(nav(root)).toBe("變更與影響")
     await goNav(root, "審查重點")
-    await click(root.querySelector("[data-testid=arch-group-follows] button"))
-    expect(tid(root, "arch-ac:notify")).not.toBeNull() // 符合 expanded
+    await click(tid(root, "facts-toggle"))
+    expect(tid(root, "arch-ac:notify")).not.toBeNull() // 結構事實 expanded
     content().scrollTop = 90
     await pop("back")
     expect(nav(root)).toBe("變更與影響")
@@ -178,20 +178,26 @@ describe("analysis states", () => {
     expect(root.querySelector("[data-testid='card-tech:cap:core']")!.textContent).toContain("app/core/settings_loader.py")
     await goNav(root, "審查重點")
     const review = tid(root, "review")!.textContent!
-    expect(review).toContain("本次分析未發現對外介面變動")
+    expect(review).toContain("本次分析未發現需要判斷或確認的事")
     expect(review).toContain("分析範圍：這個 PR 修改的 2 個檔案")
     expect(review).not.toMatch(/沒有風險|無風險/)
   })
 })
 
 describe("re-homed views", () => {
-  it("審查重點 leads with 對外介面變動 (outer → middle), checklist on outer modified, separate counts", async () => {
+  it("審查重點 leads with what needs a person (severity, rule-backed first), structural facts collapsed, separate counts", async () => {
     const root = await mount("sample")
     await goNav(root, "審查重點")
     const r = tid(root, "review")!
-    expect([...r.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["對外介面變動 5 項", "架構一致性 5 項", "待確認事項 4 項"])
+    expect([...r.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["需要你判斷或確認的事 8 項", "結構事實 6 項 展開"])
+    expect(tid(r, "focus-counts")!.textContent).toBe("待確認事項 2 項 · AI 架構疑點 1 項 · 需判斷的介面變動 5 項")
     expect(tid(r, "arch-summary")!.textContent).toContain("外圈 4 項變動（1 項可能破壞）")
-    expect([...r.querySelectorAll("[data-testid^=iface-ring-]")].map((e) => e.getAttribute("data-testid"))).toEqual(["iface-ring-outer", "iface-ring-middle"])
+    expect([...tid(r, "focus-list")!.children].map((e) => e.getAttribute("data-testid"))).toEqual([
+      "arch-ac:if-cancel", "arch-ac:if-charge", "finding-fd:stack", "arch-ac:audit-signal", "arch-ac:if-receipt",
+      "finding-fd:receipt", "arch-ac:if-checkout", "arch-ac:if-apply"])
+    // static ✓ facts are not on the page until opened
+    expect(tid(r, "arch-ac:discounts-orders")).toBeNull()
+    await click(tid(r, "facts-toggle"))
     const cancel = tid(r, "arch-ac:if-cancel")!
     for (const t of ["取消訂單", "對外 API", "修改", "可能破壞客戶端", "app/orders/views.py:97", "能否改在更內層"]) expect(cancel.textContent, t).toContain(t)
     expect(tid(r, "checklist-ac:if-apply")).toBeNull()
@@ -203,6 +209,7 @@ describe("re-homed views", () => {
   it("在地圖上標出 opens 專案背景 on the PR map with the check selected", async () => {
     const root = await mount("sample")
     await goNav(root, "審查重點")
+    await click(tid(root, "facts-toggle"))
     await click(tid(root, "arch-show-ac:discounts-orders"))
     expect(nav(root)).toBe("專案背景")
     expect(root.querySelector("[data-testid=focus-question] h2")!.textContent).toBe("這個 PR 動到系統的哪裡？")

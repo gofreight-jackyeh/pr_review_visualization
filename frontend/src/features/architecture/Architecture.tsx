@@ -6,8 +6,8 @@ import { useExplorer } from "@/app/store"
 import { Chip } from "@/shared/ui/ui"
 import { ReviewCard } from "@/features/review/ReviewCard"
 import { relationSentence } from "@/features/relations/wording"
-import { ARCH_GROUPS, groupChecks, ORIGIN_LABEL, archGroupOf } from "./arch"
-import { splitDetail, CHANGE_LABEL, CHECKLIST, COMPAT, interfaceChanges, groupByRing, KIND_LABEL, needsChecklist, RING } from "./interfaces"
+import { ARCH_GROUPS, ORIGIN_LABEL, archGroupOf } from "./arch"
+import { splitDetail, CHANGE_LABEL, CHECKLIST, COMPAT, KIND_LABEL, needsChecklist, RING } from "./interfaces"
 
 const CHECK_LABEL: Record<ArchCheck["check"], string> = {
   interface_change: "對外介面變動", dependency_direction: "依賴方向", interface: "對外介面", placement: "放置位置", shared_mechanism: "共用機制", new_debt: "架構債", cycle: "循環依賴", documented_rule: "文件規則",
@@ -54,7 +54,7 @@ export function InterfaceCard({ c, embedded }: { c: ArchCheck; embedded?: boolea
         ...(ch.compatibility !== "unknown" ? detail.uncertain.map((u) => <>{u}</>) : []),
         ...(c.business_impact ? [<>業務影響（推論，需確認）：{c.business_impact}</>] : []),
       ]}
-      refs={[{ label: "PR 位置", refs: c.pr_refs }]} />
+      refs={[{ label: "PR 位置", refs: c.pr_refs }]} evidenceRefs={c.evidence_refs} />
   )
 }
 
@@ -78,48 +78,7 @@ export function ArchCard({ c, embedded }: { c: ArchCheck; embedded?: boolean }) 
   if (c.business_impact) uncertain.push(<>業務影響（推論，需確認）：{c.business_impact}</>)
   return (
     <ReviewCard id={c.id} testid={embedded ? `panel-arch-${c.id}` : `arch-${c.id}`} embedded={embedded} className="arch" attrs={{ "data-group": g.key }} status={st} source={c.source === "semantic" ? "semantic" : "static"}
-      confirm={c.title} caps={c.capability_ids} facts={facts} uncertain={uncertain}
+      confirm={c.title} caps={c.capability_ids} facts={facts} uncertain={uncertain} evidenceRefs={c.evidence_refs}
       refs={[{ label: "規則出處", refs: rule?.source_ref ? [rule.source_ref] : [] }, { label: "這次 PR 的改動", refs: c.pr_refs }, { label: "既有的正確做法", refs: c.existing_refs }]} />
-  )
-}
-
-/** 對外介面變動 section: grouped 外圈 → 中圈 → 內圈 (spec §8 呈現順序). */
-export function InterfaceChanges() {
-  const { model: m } = useExplorer()
-  const list = interfaceChanges(m.archChecks)
-  return (
-    <section data-testid="iface-section">
-      {list.length === 0 && <p className="empty-result">本次分析未發現外圈或中圈介面的變動。</p>}
-      {groupByRing(list).map(([ring, items]) => (
-        <div key={ring} data-testid={`iface-ring-${ring}`}>
-          <h5><RingChip ring={ring} /> {items.length} 項</h5>
-          {items.map((c) => <InterfaceCard key={c.id} c={c} />)}
-        </div>
-      ))}
-    </section>
-  )
-}
-
-/** Dependency-rule checks (middle / inner ring), grouped by verdict; 符合 collapses behind an expand button. */
-export function DependencyChecks() {
-  const ex = useExplorer()
-  const m = ex.model
-  const groups = groupChecks(m.archChecks)
-  const open = ex.expanded.has("arch-follows")
-  return (
-    <div className="arch-block" data-testid="arch-block">
-      {ARCH_GROUPS.map((g) => {
-        const list = groups[g.key]
-        if (!list.length) return null
-        const hide = g.key === "follows" && !open
-        return (
-          <section key={g.key} data-testid={`arch-group-${g.key}`}>
-            <h4><Chip tone={g.tone}>{g.label}</Chip> {list.length} 項
-              {g.key === "follows" && <button className="link small" aria-expanded={open} onClick={() => ex.toggle("arch-follows")}> {open ? "收合" : "展開"}</button>}</h4>
-            {!hide && list.map((c) => <ArchCard key={c.id} c={c} />)}
-          </section>
-        )
-      })}
-    </div>
   )
 }

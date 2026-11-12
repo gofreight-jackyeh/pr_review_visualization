@@ -5,6 +5,11 @@ follow-up question).
 
 Failure never breaks a document: unavailable CLI → status=unavailable; an unparseable or wrongly shaped reply is
 retried once (owner decision, spec §5 Layer 7), then status=failed. A non-zero exit is not retried.
+
+Structured output: every call passes `--json-schema` with the reply shape of its kind (`reply_schema`). The CLI then
+returns the object in the envelope's `structured_output` (and as JSON text in `result`; verified with CLI 2.1.322 on a
+trivial prompt, 2026-11-12); `parse_reply` reads either, and still extracts JSON from plain text. A CLI that rejects
+the flag is called again without it (once per analyzer instance), so an older CLI keeps working.
 """
 
 from __future__ import annotations
@@ -39,6 +44,38 @@ OBJECT_KEYS = {"system_summary", "purpose", "design_rationale", "walkthrough"}
 STRING_KEYS = {"answer"}  # every other reply key is a list
 REQUIRED_KEYS = {"ask": ("answer",)}  # a reply without them is malformed (retried once)
 MAX_ATTEMPTS = 2  # one retry on a malformed reply
+_CITES = {"type": "array", "items": {"type": "string"}}
+_TEXT = {"type": "object", "properties": {"text": {"type": "string"}, "cites": _CITES}}
+# Item shapes the prompts describe (prompts/*.md). Deliberately loose (no required fields, no enums): the evidence gate
+# decides what is kept, and a strict schema would turn a small deviation into a failed call.
+ITEM_SCHEMAS = {
+    ("pr", "findings"): {"type": "object", "properties": {
+        "title": {"type": "string"}, "description": {"type": "string"}, "business_impact": {"type": "string"},
+        "severity": {"type": "string", "description": "info | attention | warning"},
+        "focus": {"type": "string", "description": "human_decision | release_dependency | public_contract | "
+                  "responsibility_boundary | convention | claim_needs_proof"},
+        "capability_ids": _CITES, "flow_ids": _CITES, "cites": _CITES}},
+    ("pr", "architecture_hypotheses"): {"type": "object", "properties": {
+        "title": {"type": "string"}, "description": {"type": "string"}, "check": {"type": "string"},
+        "interface_id": {"type": "string"}, "verdict": {"type": "string"}, "capability_ids": _CITES,
+        "business_impact": {"type": "string"}, "cites": _CITES}},
+    ("ask", "cites"): {"type": "string"},
+}
+OBJECT_SCHEMAS = {("pr", "walkthrough"): {"type": "object", "additionalProperties": _TEXT}}
+
+
+def reply_schema(kind: str) -> dict:
+    """JSON Schema of one call kind's reply, from REPLY_KEYS (object / string / list keys) and ITEM_SCHEMAS."""
+    props: dict[str, dict] = {}
+    for k in REPLY_KEYS[kind]:
+        if k in OBJECT_KEYS:
+            props[k] = OBJECT_SCHEMAS.get((kind, k), _TEXT)
+        elif k in STRING_KEYS:
+            props[k] = {"type": "string"}
+        else:
+            props[k] = {"type": "array", "items": ITEM_SCHEMAS.get((kind, k), {"type": "object"})}
+    return {"type": "object", "properties": props, "required": list(REQUIRED_KEYS.get(kind, ()))}
+
 # Set to 1 it makes the CLI auto-load CLAUDE.md from --add-dir directories (i.e. from the PR's own tree).
 CLAUDE_MD_FROM_ADDED_DIRS = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"
 log = logging.getLogger("pr_explorer.semantic")
@@ -66,10 +103,13 @@ class CallLog:
 
 
 def parse_reply(raw: str) -> dict:
-    """Extract the JSON object from the CLI envelope (`{"result": "..."}`) or plain text."""
+    """Extract the JSON object from the CLI envelope (`{"structured_output": {...}}` with --json-schema, else
+    `{"result": "..."}`) or plain text."""
     text = raw.strip()
     try:
         env = json.loads(text)
+        if isinstance(env, dict) and isinstance(env.get("structured_output"), dict) and not env.get("is_error"):
+            return env["structured_output"]
         if isinstance(env, dict) and (env.get("is_error") or (env.get("type") == "result" and "result" not in env)):
             raise ValueError(f"claude reported an error: {str(env.get('result') or env.get('subtype'))[:200]}")
         if isinstance(env, dict) and "result" in env:
@@ -90,8 +130,10 @@ def parse_reply(raw: str) -> dict:
 
 class ClaudeCliSemanticAnalyzer:
     def __init__(self, runner: CommandRunner, claude_bin: str = "claude", mcp_tools: list[str] | None = None,
-                 timeout: float = 600, mcp_config: str | None = None, log_path: Path | None = None):
+                 timeout: float = 600, mcp_config: str | None = None, log_path: Path | None = None,
+                 json_schema: bool = True):
         self.runner = runner
+        self.json_schema = json_schema  # turned off for good when the CLI rejects --json-schema
         self.calls = CallLog(log_path)
         self.claude_bin = claude_bin
         self.mcp_tools = mcp_tools or []
@@ -130,8 +172,9 @@ class ClaudeCliSemanticAnalyzer:
             "--disallowedTools", ",".join(DISALLOWED_TOOLS),
             "--permission-mode", "default",
             "--no-session-persistence",
-            "--max-turns", str(MAX_TURNS.get(tier, 4)),
-        ]
+            # the structured reply is one more turn (the CLI answers through an output tool)
+            "--max-turns", str(MAX_TURNS.get(tier, 4) + (1 if self.json_schema else 0)),
+        ] + (["--json-schema", json.dumps(reply_schema(kind), separators=(",", ":"))] if self.json_schema else [])
 
     def analyze(self, req: SemanticRequest) -> SemanticDraft:
         sources = ["repo:code"] if req.kind != "pr" else ["pr:metadata", "pr:diff"]
@@ -149,7 +192,9 @@ class ClaudeCliSemanticAnalyzer:
             return SemanticDraft(status=status, error=error, payload=payload or {}, knowledge_sources=sources, calls=attempt,
                                  prompt_chars=chars, seconds=round(secs, 1))
 
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        attempt = 0
+        while attempt < MAX_ATTEMPTS:
+            attempt += 1
             t0 = time.monotonic()
             with tempfile.TemporaryDirectory(prefix="pr-explorer-claude-") as cwd:  # fresh, empty, removed after
                 res = self.runner.run(cmd, cwd=cwd, input=prompt, timeout=self.timeout, env=env)
@@ -159,6 +204,10 @@ class ClaudeCliSemanticAnalyzer:
                              returncode=res.returncode, reply_chars=len(res.stdout))
             if res.returncode == 127:
                 return out("unavailable", attempt, "claude CLI not found")
+            if res.returncode != 0 and self.json_schema and "json-schema" in (res.stderr + res.stdout).lower():
+                self.json_schema = False  # an older CLI without structured output: same call, plain JSON reply
+                cmd, attempt = self.command(req.tier, req.worktree, req.kind), attempt - 1
+                continue
             if res.returncode != 0:
                 return out("failed", attempt, f"claude exited {res.returncode}: {res.stderr.strip()[:300]}")
             try:
