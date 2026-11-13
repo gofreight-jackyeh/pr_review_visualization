@@ -5,6 +5,7 @@ import { ARCH_GROUPS, archGroupOf } from "@/features/architecture/arch"
 import { analysisStates, scopeLine } from "@/features/analysis-state/state"
 import { Chip } from "@/shared/ui/ui"
 import { FindingCard } from "./ReviewCard"
+import { AuthorRecord } from "./AuthorRecord"
 import { inFacts, reviewLayers } from "./layers"
 
 export const FACTS_KEY = "review-facts"
@@ -20,6 +21,7 @@ export function ReviewView() {
   const m = ex.model
   const l = reviewLayers(m)
   const st = analysisStates(m)
+  const authorCount = m.overlay?.author_record?.length ?? 0
   const factCount = l.facts.findings.length + l.facts.ifaces.length + l.facts.checks.length
   const open = ex.expanded.has(FACTS_KEY) || inFacts(l, ex.card) // a jump to a structural fact opens the layer
   const empty = (what: string) => <p className="empty-result">本次分析未發現{what}。<span className="muted small">{scopeLine(m)}</span></p>
@@ -31,9 +33,10 @@ export function ReviewView() {
   return (
     <article className="view review" data-testid="review">
       <h2 id="view-title" tabIndex={-1}>{NAV[2].question}</h2>
-      <p className="muted small">先列出需要你判斷或確認的事（依嚴重度排序，有文件規則依據的排前面），再列出靜態分析已確認的結構事實。每張卡先寫需要確認什麼；狀態只依資料本身的確認程度，「來源」只說明內容從哪裡來。各類分開計數，不加總成風險分數。</p>
+      <p className="muted small">先列出需要你判斷或確認的事（依嚴重度排序，有文件規則依據的排前面），接著是作者在 PR 說明裡自己的記錄（已定案的決策、驗證狀態、未解問題），最後是靜態分析已確認的結構事實。每張卡先寫需要確認什麼；狀態只依資料本身的確認程度，「來源」只說明內容從哪裡來。各類分開計數，不加總成風險分數。</p>
       <nav className="review-index" aria-label="審查分類">
         <a href="#review-findings" onClick={jump("review-findings")} data-testid="index-focus">需要你判斷或確認的事 {l.top.length} 項</a>
+        {authorCount > 0 && <a href="#review-author" onClick={jump("review-author")} data-testid="index-author">作者的記錄 {authorCount} 項</a>}
         <a href="#review-arch" onClick={jump("review-arch")} data-testid="index-facts">結構事實 {factCount} 項</a>
       </nav>
       <section id="review-findings" tabIndex={-1} aria-labelledby="h-focus" data-testid="review-focus">
@@ -49,6 +52,7 @@ export function ReviewView() {
           {l.top.map((x) => x.kind === "finding" ? <FindingCard key={x.id} f={x.f} /> : <ArchCard key={x.id} c={x.c} />)}
         </div>
       </section>
+      <AuthorRecord />
       <section id="review-arch" tabIndex={-1} aria-labelledby="h-facts" data-testid="review-facts" className="review-facts">
         <h3 id="h-facts">結構事實 <span className="count">{factCount} 項</span>
           {factCount > 0 && <button className="link small" aria-expanded={open} aria-controls="facts-body" data-testid="facts-toggle" onClick={() => ex.toggle(FACTS_KEY, !open)}> {open ? "收合" : "展開"}</button>}

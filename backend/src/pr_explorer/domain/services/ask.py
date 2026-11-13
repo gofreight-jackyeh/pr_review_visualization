@@ -12,7 +12,7 @@ import json
 from typing import Any
 
 from ..model.ids import parse_file_cite
-from .semantic_digest import code_first
+from .semantic_digest import clip_body, code_first
 
 QUESTION_MAX = 2000
 HISTORY_TURNS = 6
@@ -120,7 +120,7 @@ def ask_digest(overlay: dict, smap: dict, *, question: str, diff: str, selected_
     caps_used |= {f["capability_id"] for f in files if f.get("capability_id")}
     data: dict[str, Any] = {
         "question": {"text": question, "role": "the reviewer's question: answer this one"},
-        "pr": {"title": pr.get("title"), "body": _clip(pr.get("body") or "", 3000), "evidence_id": pr_ev,
+        "pr": {"title": pr.get("title"), "body": clip_body(pr.get("body") or "", 12_000), "evidence_id": pr_ev,
                "base_ref": pr.get("base_ref"), "head_ref": pr.get("head_ref")},
         "system": {"name": smap.get("system", {}).get("technical_name"), "summary": _clip(_t(smap.get("system", {}).get("summary")), 800)},
         "purpose": _t(overlay.get("purpose")),

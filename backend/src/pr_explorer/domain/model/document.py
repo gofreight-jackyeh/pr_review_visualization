@@ -11,7 +11,7 @@ from .finding import Finding
 from .graph import CodeRef, Evidence
 from .semantic import AiChoice
 
-SCHEMA_VERSION = "2.6.0"
+SCHEMA_VERSION = "2.7.0"
 
 DISCLAIMER = (
     "Structure comes from static analysis (Python AST / TypeScript compiler) of the repository at one commit; "
@@ -412,6 +412,21 @@ class ChangesPayload:
     files: list[ChangedFile]
 
 
+AUTHOR_NOTE_KINDS = ("settled_decision", "verification", "open_issue")
+
+
+@dataclass
+class AuthorNote:
+    """What the PR author recorded in the description (2.7.0): a decision they call settled, the verification / QA
+    status, or an issue they list as still open. `text` restates it (AI), `quote` is the author's own words, checked to
+    occur in the description. Shown apart from the AI's questions: it is the author's claim, not a verified fact."""
+
+    id: str
+    kind: str  # settled_decision | verification | open_issue
+    text: Text
+    quote: str
+
+
 @dataclass
 class PrOverlay:
     analyzer_version: str
@@ -432,5 +447,6 @@ class PrOverlay:
     semantic: SemanticStatus
     walkthrough: Walkthrough
     design_rationale: Text | None = None
+    author_record: list[AuthorNote] = field(default_factory=list)
     kind: str = "pr_overlay"
     schema_version: str = SCHEMA_VERSION

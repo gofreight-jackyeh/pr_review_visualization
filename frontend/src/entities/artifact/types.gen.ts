@@ -247,7 +247,7 @@ export type ArchCheck = {
 
 export interface SystemMap {
   kind: "system_map"
-  schema_version: "2.6.0"
+  schema_version: "2.7.0"
   analyzer_version: Version
   system_map_id: Id
   generated_at: string
@@ -439,7 +439,7 @@ export interface SemanticStatus {
 }
 export interface PrOverlay {
   kind: "pr_overlay"
-  schema_version: "2.6.0"
+  schema_version: "2.7.0"
   analyzer_version: Version
   overlay_id: Id
   system_map_id: Id
@@ -451,6 +451,10 @@ export interface PrOverlay {
   }
   purpose: Text
   design_rationale?: Text
+  /**
+   * 2.7.0: what the PR author recorded in the description, restated (text, AI) with the author's own words (quote, checked to occur in the description). The author's claim, not verified.
+   */
+  author_record?: AuthorNote[]
   behavior_changes: BehaviorChange[]
   impacts: Impact[]
   flow_changes: FlowChange[]
@@ -504,6 +508,12 @@ export interface ChangedFile {
    * null when the file belongs to no capability (e.g. CI config).
    */
   capability_id: Id | null
+}
+export interface AuthorNote {
+  id: Id
+  kind: "settled_decision" | "verification" | "open_issue"
+  text: Text
+  quote: string
 }
 export interface BehaviorChange {
   id: Id

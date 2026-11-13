@@ -189,7 +189,7 @@ describe("re-homed views", () => {
     const root = await mount("sample")
     await goNav(root, "審查重點")
     const r = tid(root, "review")!
-    expect([...r.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["需要你判斷或確認的事 8 項", "結構事實 6 項 展開"])
+    expect([...r.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["需要你判斷或確認的事 8 項", "作者在 PR 說明裡的記錄 1 項", "結構事實 6 項 展開"])
     expect(tid(r, "focus-counts")!.textContent).toBe("待確認事項 2 項 · AI 架構疑點 1 項 · 需判斷的介面變動 5 項")
     expect(tid(r, "arch-summary")!.textContent).toContain("外圈 4 項變動（1 項可能破壞）")
     expect([...tid(r, "focus-list")!.children].map((e) => e.getAttribute("data-testid"))).toEqual([

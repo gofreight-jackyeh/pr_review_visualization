@@ -319,3 +319,6 @@ button.ask-open.on { background: var(--accent); color: #fff; }
 .infra-actions { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; } .infra-actions button.big { margin: 4px 0; }
 .infra-group h3 { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; } .infra-group .count { font-weight: 400; color: var(--muted); font-size: .95rem; }
 .infra-context-note { margin: 0; padding: 6px 16px; background: #fff; border-bottom: 1px solid var(--line); color: var(--muted); }
+.author-note { padding: 8px 12px; margin: 6px 0; background: #fff; border: 1px solid var(--line); border-left: 3px solid var(--muted); border-radius: 6px; }
+.author-note p { margin: 0 0 4px; }
+.author-note blockquote { margin: 4px 0 0; padding: 4px 10px; border-left: 2px solid var(--line); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }

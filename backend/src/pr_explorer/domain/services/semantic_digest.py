@@ -220,6 +220,20 @@ def relevant_rules(rules: list[dict], touched: set[str], checks: list, limit: in
     return (first + scoped)[:limit]
 
 
+BODY_BUDGET = {"light": 8_000, "standard": 20_000, "deep": 32_000}
+OMITTED = "\n\n[… middle of the description omitted …]\n\n"
+
+
+def clip_body(body: str, limit: int) -> str:
+    """The PR description within `limit` characters. A longer one keeps its start and its end: authors put the
+    settled decisions, QA status and open issues of a rework at the bottom (before 2.7.0 only the first 4000 characters
+    were sent, so those records never reached the AI)."""
+    if len(body) <= limit:
+        return body
+    head = limit * 2 // 3
+    return body[:head] + OMITTED + body[-(limit - head - len(OMITTED)):]
+
+
 def pr_digest(*, title: str, body: str, pr_evidence: str, system_name: str, system_summary: str | None,
               names: dict[str, str], files: list, impacts: list[Impact], flow_changes: list[FlowChange],
               findings: list[Finding], diff_evidence: dict[str, str], diff_excerpt: str, docs: list[DocExcerpt],
@@ -230,7 +244,7 @@ def pr_digest(*, title: str, body: str, pr_evidence: str, system_name: str, syst
     budget = {"light": 6_000, "standard": 20_000, "deep": 60_000}.get(tier, 6_000)
     impact_ids = {i.target_id for i in impacts}
     return {
-        "pr": {"title": title, "body": body[:4000], "evidence_id": pr_evidence},
+        "pr": {"title": title, "body": clip_body(body, BODY_BUDGET.get(tier, 8_000)), "evidence_id": pr_evidence},
         "system": {"name": system_name, "summary": system_summary},
         "changed_files": [{"id": f.id, "path": f.path, "status": f.status, "capability_id": f.capability_id,
                            "evidence_id": diff_evidence.get(f.path)} for f in files[:cap]],

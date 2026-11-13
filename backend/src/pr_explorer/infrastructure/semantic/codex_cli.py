@@ -29,6 +29,7 @@ from .prompt_builder import system_prompt
 DISABLED_FEATURES = ("apps", "plugins", "multi_agent", "image_generation", "goals", "browser_use", "computer_use",
                      "in_app_browser", "memories", "tool_suggest", "skill_search", "hooks")
 REPLY_FILE = "reply.txt"
+DEFAULT_EFFORT = "high"
 
 
 def _toml(s: str) -> str:
@@ -59,8 +60,9 @@ class CodexCliSemanticAnalyzer(ClaudeCliSemanticAnalyzer):
                          effort=effort)
 
     def defaults(self) -> tuple[str | None, str | None]:
-        um, ue = user_defaults()
-        return self.model or um, self.effort or ue
+        """Model: PR_EXPLORER_CODEX_MODEL, else the operator's Codex config. Effort: PR_EXPLORER_CODEX_EFFORT, else
+        DEFAULT_EFFORT (owner decision 2026-11-13: not the CLI config, whose xhigh makes an analysis much slower)."""
+        return self.model or user_defaults()[0], self.effort or DEFAULT_EFFORT
 
     def env(self) -> dict[str, str]:
         return dict(os.environ)  # tool calls only see the "core" variables (shell_environment_policy)

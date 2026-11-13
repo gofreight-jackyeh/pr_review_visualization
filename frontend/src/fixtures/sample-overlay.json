@@ -1,6 +1,6 @@
 {
   "kind": "pr_overlay",
-  "schema_version": "2.6.0",
+  "schema_version": "2.7.0",
   "analyzer_version": "2.2.0-fixture",
   "overlay_id": "ov_sample",
   "system_map_id": "sm_sample",
@@ -142,6 +142,20 @@
       "ev:diff:discounts"
     ]
   },
+  "author_record": [
+    {
+      "id": "author:sample1",
+      "kind": "settled_decision",
+      "text": {
+        "text": "作者記錄：這次同時移除固定 10% 會員折扣，改由折扣碼決定折扣。",
+        "source": "semantic",
+        "evidence_refs": [
+          "ev:pr:meta"
+        ]
+      },
+      "quote": "並移除固定 10% 會員折扣"
+    }
+  ],
   "behavior_changes": [
     {
       "id": "bc:code",

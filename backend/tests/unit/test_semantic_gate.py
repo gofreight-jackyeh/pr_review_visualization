@@ -121,3 +121,28 @@ def test_system_map_call_is_batched_by_capability(smap, tmp_path):
 def test_output_language_follows_the_docs():
     assert text_language("一個小型的 Django 網路商店後端，顧客瀏覽商品目錄並結帳。") == "zh-Hant"
     assert text_language("A small Django shop.", "Add discount codes") == "en"
+
+
+def test_author_record_keeps_only_quotes_found_in_the_description():
+    import dataclasses
+    body = "## Rework\n**Settled decisions**\n- The new behaviour is the default for every tenant, with no tenant setting.\n" \
+           "Unverified this turn: link\n- Known: a draft renamed during its own create is overwritten."
+    known = dataclasses.replace(_known(), pr_body=body, pr_evidence="ev:pr:metadata")
+    out = gate_pr({"author_record": [
+        {"kind": "settled_decision", "text": "作者記錄：全租戶預設，沒有開關（標示未驗證）。",
+         "quote": "The new behaviour is the **default** for every   tenant, with no tenant setting."},  # formatting may differ
+        {"kind": "open_issue", "text": "作者列為未解。", "quote": "a draft renamed during its own create is overwritten"},
+        {"kind": "settled_decision", "text": "AI 自己編的", "quote": "PM approved this on Monday"},  # not in the description
+        {"kind": "opinion", "text": "x", "quote": "Unverified this turn"},  # unknown kind
+    ]}, known)
+    assert [(n.kind, n.text.evidence_refs) for n in out.author_record] == [
+        ("settled_decision", ["ev:pr:metadata"]), ("open_issue", ["ev:pr:metadata"])]
+    assert out.dropped == 2
+
+
+def test_long_description_keeps_its_end():
+    from pr_explorer.domain.services.semantic_digest import clip_body
+    body = "start " + "x" * 30_000 + " Settled decisions: default for every tenant"
+    clipped = clip_body(body, 20_000)
+    assert len(clipped) <= 20_000 and clipped.startswith("start ") and clipped.endswith("default for every tenant")
+    assert clip_body("short", 20_000) == "short"

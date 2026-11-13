@@ -106,7 +106,8 @@ def test_codex_command_is_confined(tmp_path, monkeypatch):
     argv = runner.calls[0]["args"]
     assert d.status == "done" and d.payload["purpose"]["text"] == "p" and d.model == "gpt-user"
     assert argv[1:3] == ["exec", "--ignore-user-config"] and argv[-1] == "-" and "--ephemeral" in argv
-    assert argv[argv.index("-m") + 1] == "gpt-user" and 'model_reasoning_effort="xhigh"' in argv
+    # model from the operator's Codex config; effort "high" unless PR_EXPLORER_CODEX_EFFORT (owner decision: not xhigh)
+    assert argv[argv.index("-m") + 1] == "gpt-user" and 'model_reasoning_effort="high"' in argv
     fs = next(a for a in argv if a.startswith("permissions.pr.filesystem="))
     assert f'"{wt.resolve().as_posix()}"="read"' in fs and "write" not in fs
     assert "permissions.pr.network.enabled=false" in argv and "project_doc_max_bytes=0" in argv

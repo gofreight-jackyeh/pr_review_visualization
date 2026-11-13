@@ -17,7 +17,7 @@ from typing import Any
 
 from ..model.changes import ChangedFile
 from ..model.convention import instruction_scope
-from ..model.document import ArchCheck, BehaviorChange, InterfaceChange, Phase, SystemMap, Text
+from ..model.document import AUTHOR_NOTE_KINDS, ArchCheck, AuthorNote, BehaviorChange, InterfaceChange, Phase, SystemMap, Text
 from ..model.finding import Finding
 from ..model.graph import CodeRef, Evidence
 from ..model.ids import parse_file_cite, short_hash
@@ -257,6 +257,8 @@ class PrKnown:
     flow_steps: dict[str, list[str]] = field(default_factory=dict)  # flow change id -> its merged step ids (phases)
     interfaces: dict[str, str] = field(default_factory=dict)  # interface id (map + head_additions) -> ring
     interface_checks: set[str] = field(default_factory=set)  # static interface_change check ids Claude may annotate
+    pr_body: str = ""  # the PR description: author_record quotes must occur in it
+    pr_evidence: str = ""  # its evidence id
 
 
 @dataclass
@@ -272,6 +274,7 @@ class PrSemantic:
     phases: dict[str, list[Phase]] = field(default_factory=dict)  # flow change id -> phases over its merged steps
     hypotheses: list[ArchCheck] = field(default_factory=list)  # architecture doubts: always needs_confirmation
     interface_notes: dict[str, Text] = field(default_factory=dict)  # interface check id -> who is affected (grounded)
+    author_record: list[AuthorNote] = field(default_factory=list)
     dropped: int = 0
     reasons: list[str] = field(default_factory=list)
 
@@ -284,6 +287,15 @@ def _changed_files_for(refs: list[CodeRef], files: list[ChangedFile]) -> list[st
             if ref.path == path and f.id not in out:
                 out.append(f.id)
     return out
+
+
+MAX_AUTHOR_NOTES = 15
+QUOTE_MIN, QUOTE_MAX = 8, 400
+
+
+def _plain(s: str) -> str:
+    """Markdown emphasis / code marks dropped, whitespace collapsed, lower case: a quote may lose formatting."""
+    return " ".join(s.translate(str.maketrans("", "", "*`_")).split()).lower()
 
 
 def gate_pr(payload: dict, known: PrKnown) -> PrSemantic:
@@ -421,6 +433,19 @@ def gate_pr(payload: dict, known: PrKnown) -> PrSemantic:
         note = r.text(item.get("who_is_affected"), [cid] + _ids(item.get("cites")), f"{cid}.who_is_affected", LIMITS["description"])
         if note:
             out.interface_notes[cid] = note
+
+    body = _plain(known.pr_body)
+    for i, item in enumerate(_list(payload.get("author_record"))[:MAX_AUTHOR_NOTES]):
+        kind, quote = item.get("kind"), _str(item.get("quote"), QUOTE_MAX)
+        text = _str(item.get("text"), LIMITS["description"])
+        if kind not in AUTHOR_NOTE_KINDS or not text or not known.pr_evidence:
+            r.drop(f"author_record {i}: kind {str(kind)[:30]!r} or text missing")
+            continue
+        if len(_plain(quote)) < QUOTE_MIN or _plain(quote) not in body:  # the author's words, not the AI's
+            r.drop(f"author_record {i}: quote not found in the PR description")
+            continue
+        out.author_record.append(AuthorNote(f"author:{short_hash(kind, quote)}", kind,
+                                            Text(text, "semantic", [known.pr_evidence]), quote))
 
     walk = payload.get("walkthrough")
     if isinstance(walk, dict):

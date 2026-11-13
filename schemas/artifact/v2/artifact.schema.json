@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pr-explorer.local/schemas/artifact/v2/artifact.schema.json",
-  "$comment": "2.6.0 (2026-11-13): semantic.ai (engine / model / effort that wrote a PR overlay's texts). 2.5.0 (2026-11-12): capability text_basis (incremental reuse bookkeeping). 2.4.0 (2026-11-12): system.repo_kind (application | infrastructure). 2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
+  "$comment": "2.7.0 (2026-11-13): overlay author_record (what the PR description records: settled decisions, verification / QA status, open issues). 2.6.0 (2026-11-13): semantic.ai (engine / model / effort that wrote a PR overlay's texts). 2.5.0 (2026-11-12): capability text_basis (incremental reuse bookkeeping). 2.4.0 (2026-11-12): system.repo_kind (application | infrastructure). 2.3.0 (2026-11-12): architecture check kind documented_rule. 2.2.0 (2026-11-11): interfaces with rings (outer = client-facing) and interface-change checks. 2.1.0: business domains, capability category/split, flow phases, architecture rules/checks replace conventions.",
   "title": "PR Review Explorer Artifact v2",
   "description": "Two document kinds share one schema. system_map: the whole repository at one commit (cached per repo+commit, reused by every PR). pr_overlay: one PR laid over a system map. Structure comes from static analysis; Claude only writes Text items, each of which must cite evidence (spec v2 §5 Layer 7).",
   "oneOf": [
@@ -70,6 +70,15 @@
         "level": { "enum": ["deep", "generic", "unsupported"] },
         "file_count": { "type": "integer", "minimum": 0 },
         "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "AuthorNote": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "text", "quote"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["settled_decision", "verification", "open_issue"] },
+        "text": { "$ref": "#/$defs/Text" },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 400 }
       }
     },
     "SemanticStatus": {
@@ -294,7 +303,7 @@
                    "flow_budget", "architecture_rules", "interfaces", "evidence", "semantic", "disclaimer"],
       "properties": {
         "kind": { "const": "system_map" },
-        "schema_version": { "const": "2.6.0" },
+        "schema_version": { "const": "2.7.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "system_map_id": { "$ref": "#/$defs/Id" },
         "generated_at": { "type": "string", "format": "date-time" },
@@ -525,7 +534,7 @@
                    "findings", "architecture_checks", "evidence", "semantic", "walkthrough"],
       "properties": {
         "kind": { "const": "pr_overlay" },
-        "schema_version": { "const": "2.6.0" },
+        "schema_version": { "const": "2.7.0" },
         "analyzer_version": { "$ref": "#/$defs/Version" },
         "overlay_id": { "$ref": "#/$defs/Id" },
         "system_map_id": { "$ref": "#/$defs/Id" },
@@ -538,6 +547,10 @@
         },
         "purpose": { "$ref": "#/$defs/Text" },
         "design_rationale": { "$ref": "#/$defs/Text" },
+        "author_record": {
+          "type": "array", "items": { "$ref": "#/$defs/AuthorNote" },
+          "description": "2.7.0: what the PR author recorded in the description, restated (text, AI) with the author's own words (quote, checked to occur in the description). The author's claim, not verified."
+        },
         "behavior_changes": { "type": "array", "items": { "$ref": "#/$defs/BehaviorChange" } },
         "impacts": { "type": "array", "items": { "$ref": "#/$defs/Impact" } },
         "flow_changes": { "type": "array", "items": { "$ref": "#/$defs/FlowChange" } },

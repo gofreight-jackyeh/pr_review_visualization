@@ -37,7 +37,7 @@ REPLY_KEYS = {
     "domains": ("domains",),
     "phases": ("flows",),
     "pr": ("purpose", "design_rationale", "behavior_changes", "findings", "step_labels", "head_additions", "walkthrough",
-           "questions", "flow_phases", "architecture_hypotheses", "interface_notes"),
+           "questions", "flow_phases", "architecture_hypotheses", "interface_notes", "author_record"),
     "ask": ("answer", "cites"),
 }
 OBJECT_KEYS = {"system_summary", "purpose", "design_rationale", "walkthrough"}
@@ -59,6 +59,9 @@ ITEM_SCHEMAS = {
         "title": {"type": "string"}, "description": {"type": "string"}, "check": {"type": "string"},
         "interface_id": {"type": "string"}, "verdict": {"type": "string"}, "capability_ids": _CITES,
         "business_impact": {"type": "string"}, "cites": _CITES}},
+    ("pr", "author_record"): {"type": "object", "properties": {
+        "kind": {"type": "string", "description": "settled_decision | verification | open_issue"},
+        "text": {"type": "string"}, "quote": {"type": "string"}}},
     ("ask", "cites"): {"type": "string"},
 }
 OBJECT_SCHEMAS = {("pr", "walkthrough"): {"type": "object", "additionalProperties": _TEXT}}

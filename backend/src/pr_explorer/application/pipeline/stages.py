@@ -916,7 +916,8 @@ class Pipeline:
         interfaces = {i["id"]: i["ring"] for i in doc.get("interfaces", [])} | {i.id: i.ring for i in ha.interfaces}
         return PrKnown(elements, evidence, caps, flows, steps, ctx.files, additions,
                        flow_steps={fc.flow_id: [s.id for s in fc.steps] for fc in ctx.flow_changes}, interfaces=interfaces,
-                       interface_checks={c.id for c in ctx.arch_checks if c.check == "interface_change"})
+                       interface_checks={c.id for c in ctx.arch_checks if c.check == "interface_change"},
+                       pr_body=ctx.pr.body or "", pr_evidence=PR_EVIDENCE)
 
     def _pool(self, ctx: Context) -> dict[str, Evidence]:
         assert ctx.graph is not None
@@ -1187,6 +1188,7 @@ class Pipeline:
                                                           key=check_order), evidence=[],
             semantic=semantic, walkthrough=walkthrough,
             design_rationale=sem.design_rationale if sem else None,
+            author_record=sem.author_record if sem else [],
         )
         in_map = {e["id"] for e in doc["evidence"]}
         pool = self._pool(ctx)

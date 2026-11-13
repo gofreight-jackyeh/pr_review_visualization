@@ -29,6 +29,7 @@ from .infrastructure.process.runner import CommandRunner, SubprocessRunner
 from .infrastructure.security.secret_scrubber import scrub
 from .infrastructure.semantic.claude_cli import ClaudeCliSemanticAnalyzer
 from .infrastructure.semantic.codex_cli import CodexCliSemanticAnalyzer
+from .infrastructure.semantic.codex_cli import DEFAULT_EFFORT as CODEX_DEFAULT_EFFORT
 from .infrastructure.semantic.codex_cli import user_defaults as codex_user_defaults
 from .infrastructure.semantic.router import EngineRouter
 from .infrastructure.source.git_cache import GitCache
@@ -108,7 +109,7 @@ def cli_defaults(engine: str) -> dict[str, str]:
     (~/.claude/settings.json model / effortLevel, ~/.codex/config.toml); best effort, shown as a hint only."""
     model, effort = model_effort_from_env(engine)
     if engine == "codex":
-        um, ue = codex_user_defaults()
+        um, ue = codex_user_defaults()[0], CODEX_DEFAULT_EFFORT
     else:
         try:
             s = json.loads((Path.home() / ".claude" / "settings.json").read_text())

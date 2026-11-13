@@ -13,7 +13,7 @@ from ...domain.model.semantic import AiChoice, SemanticDraft
 
 # Bump on ANY change that alters analysis output (prompts, caps, rules, detection): it is part of every cache key,
 # so forgetting it serves stale results. Claude texts still carry over across versions via map reuse.
-ANALYZER_VERSION = "2.6.0"
+ANALYZER_VERSION = "2.7.0"
 
 
 class SourceError(RuntimeError):
