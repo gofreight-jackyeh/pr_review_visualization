@@ -247,7 +247,7 @@ export type ArchCheck = {
 
 export interface SystemMap {
   kind: "system_map"
-  schema_version: "2.5.0"
+  schema_version: "2.6.0"
   analyzer_version: Version
   system_map_id: Id
   generated_at: string
@@ -426,12 +426,20 @@ export interface SemanticStatus {
    * Claude statements discarded for citing nothing that exists.
    */
   dropped_claims?: number
+  /**
+   * PR overlays (2.6.0): the AI that wrote the texts. model / effort absent = that engine's default settings.
+   */
+  ai?: {
+    engine: "claude" | "codex"
+    model?: string
+    effort?: "low" | "medium" | "high" | "xhigh" | "max"
+  }
   knowledge_sources?: string[]
   error?: string
 }
 export interface PrOverlay {
   kind: "pr_overlay"
-  schema_version: "2.5.0"
+  schema_version: "2.6.0"
   analyzer_version: Version
   overlay_id: Id
   system_map_id: Id

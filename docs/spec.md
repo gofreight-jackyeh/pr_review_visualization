@@ -464,6 +464,7 @@ Claude 在分析階段產生解說文字與導覽內容，使用者探索時不�
 - 不執行 PR 中的程式碼
 - 不允許 Repository 內容作為 Claude 的系統指令
 - Claude 工具權限限制為完成分析所需的讀取操作
+- 每次分析可選 AI 引擎（Claude / Codex）、model 與 effort，只套用在 PR 說明與「問 AI」，系統地圖一律用伺服器預設（2026-11-13 owner 決定）。Codex 同樣只能讀取 PR 的 worktree，不能寫入、連網、使用瀏覽器或外掛，也不讀專案指示檔；選 Codex 代表 PR 程式碼會送到 OpenAI，可用 `PR_EXPLORER_ENGINES=claude` 關閉
 - 不將本機 Credentials 或 Secrets 寫入 Artifact
 - 產生內容僅存放本機
 - 保留 Artifact 與 Evidence 的來源資訊

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useExplorer } from "@/app/store"
 import { ApiError, api, type AnswerCite, type Question } from "@/shared/api/client"
 import { Markdown } from "@/shared/ui/Markdown"
+import { engineName } from "@/shared/ai/ai"
 import { CopyButton, DiffLink, RefRow } from "@/shared/ui/ui"
 import { askContext, CITE_KIND, citeSelection, contextTitle, type AskAccess } from "./ask"
 
@@ -128,7 +129,7 @@ export function AskPanel({ access }: { access: AskAccess }) {
         <button className="dp-close" onClick={ex.closeAsk} aria-label="關閉問 AI 面板">關閉 ✕</button>
       </header>
       <p className="ask-ai-label" role="note" data-testid="ask-ai-label">
-        <b>AI 解讀，需要自行確認。</b>回答由 Claude 根據這份分析與 PR 原始碼撰寫（只閱讀、不執行程式），可能出錯。
+        <b>AI 解讀，需要自行確認。</b>回答由 {engineName(m.overlay?.semantic.ai)} 根據這份分析與 PR 原始碼撰寫（只閱讀、不執行程式），可能出錯。
       </p>
       <div className="dp-body ask-body">
         {access.state === "fixture" && <p className="muted">範例資料不能提問：請開啟實際分析的結果。</p>}

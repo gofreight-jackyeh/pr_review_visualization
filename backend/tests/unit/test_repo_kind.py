@@ -23,4 +23,4 @@ def test_repo_kind_needs_no_entry_points_and_mostly_iac():
 
 def test_system_map_records_the_kind(shop_docs):
     smap, *_ = shop_docs
-    assert smap["system"]["repo_kind"] == "application" and smap["schema_version"] == "2.5.0"
+    assert smap["system"]["repo_kind"] == "application" and smap["schema_version"] == "2.6.0"

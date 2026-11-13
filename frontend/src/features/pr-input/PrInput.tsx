@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import { api, type AnalysisRequest, type AnalysisStatus, type AnalysisSummary, type SemanticMode } from "@/shared/api/client"
+import type { AiChoice } from "@/shared/ai/ai"
+import { AiPicker } from "./AiPicker"
 
 const STAGE_LABEL: Record<string, string> = {
   acquire: "取得 PR 與原始碼", system_map: "建立系統地圖", pr_static: "PR 靜態分析", flows: "業務流程",
-  impact: "影響範圍", semantic: "Claude 業務說明", assemble: "組裝結果",
+  impact: "影響範圍", semantic: "AI 業務說明", assemble: "組裝結果",
 }
 const ICON = { pending: "○", running: "◐", done: "●", failed: "✕", skipped: "–" } as const
 
@@ -68,6 +70,7 @@ export function PrInput({ initialAnalysis, initialRequest, poll, onLoaded }: {
   const [repo, setRepo] = useState(""); const [base, setBase] = useState("main"); const [head, setHead] = useState("")
   const [docName, setDocName] = useState(""); const [docText, setDocText] = useState("")
   const [mode, setMode] = useState<SemanticMode>("auto")
+  const [ai, setAi] = useState<AiChoice | null>(initialRequest?.ai ?? null)
   const [analysisId, setAnalysisId] = useState<string | undefined>(initialAnalysis)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -78,6 +81,7 @@ export function PrInput({ initialAnalysis, initialRequest, poll, onLoaded }: {
 
   const request = (): AnalysisRequest => {
     const body: AnalysisRequest = { semantic_mode: mode }
+    if (ai && mode !== "off") body.ai = ai
     if (local) body.local = { repo_path: repo.trim(), base: base.trim(), head: head.trim() }
     else body.pr_url = prUrl.trim()
     if (docText.trim()) body.context_docs = [{ name: docName.trim() || "context.md", content: docText }]
@@ -121,12 +125,13 @@ export function PrInput({ initialAnalysis, initialRequest, poll, onLoaded }: {
             <label className="field">檔名<input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="jira-ABC-1.md" /></label>
             <label className="field">貼上文字<textarea rows={4} value={docText} onChange={(e) => setDocText(e.target.value)} placeholder="貼上 Jira、Slack 或設計文件" /></label>
           </details>
-          <label className="field">Claude 業務說明
+          <label className="field">AI 業務說明
             <select value={mode} onChange={(e) => setMode(e.target.value as SemanticMode)}>
               <option value="auto">自動（依複雜度）</option><option value="off">關閉（只做靜態分析）</option>
               <option value="light">Light</option><option value="standard">Standard</option><option value="deep">Deep</option>
             </select>
           </label>
+          {mode !== "off" && <AiPicker value={ai} onChange={setAi} />}
           {error && <p className="notice warn" role="alert">{error}</p>}
           <div className="row">
             <button className="primary" type="submit" disabled={busy}>{busy ? "啟動中…" : "開始分析"}</button>

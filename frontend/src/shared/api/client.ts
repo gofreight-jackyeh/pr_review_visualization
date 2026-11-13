@@ -1,3 +1,4 @@
+import type { AiChoice, Effort, Engine } from "@/shared/ai/ai"
 import type { PrOverlay, SystemMap } from "@/entities/artifact/types"
 
 export class ApiError extends Error {
@@ -27,6 +28,8 @@ export interface AnalysisRequest {
   semantic_mode: SemanticMode
   /** retry: skip the overlay cache and run again (docs/api.md「POST /api/analyses」) */
   force?: boolean
+  /** engine / model / effort of the PR texts and its questions; absent = the server default */
+  ai?: AiChoice
 }
 export interface AnalysisCreated { analysis_id: string; status: string; cached: boolean }
 export interface Stage { name: string; status: "pending" | "running" | "done" | "failed" | "skipped"; message: string }
@@ -34,7 +37,12 @@ export interface AnalysisStatus { analysis_id: string; status: "queued" | "runni
 export interface AnalysisSummary { analysis_id: string; status: string; title: string | null; repo: string | null; head_sha: string | null; created_at: string; overlay_id: string | null; system_map_id: string | null; queue_position?: number | null }
 export interface Freshness { stale: boolean; analyzed_head_sha: string; current_head_sha: string }
 /** PR_EXPLORER_ASK on the server, and whether this client may ask (docs/api.md「GET /api/config」). */
-export interface ServerConfig { ask: { mode: "local" | "all" | "off"; allowed: boolean; reason: string | null } }
+export interface AiOptions {
+  default: AiChoice
+  /** default: what the engine uses when nothing is chosen (its CLI settings), a hint only */
+  engines: { engine: Engine; efforts: Effort[]; models: string[]; default?: { model?: string; effort?: string } }[]
+}
+export interface ServerConfig { ask: { mode: "local" | "all" | "off"; allowed: boolean; reason: string | null }; ai?: AiOptions }
 /** One cited source of an answer, resolved by the backend against the overlay (code refs may lack a line). */
 export interface AnswerCite { id: string; kind: string; label: string; refs: { side: "base" | "head"; path: string; start_line?: number; end_line?: number }[] }
 export interface Answer { text: string; cites: AnswerCite[]; unsupported: boolean; dropped: string[] }

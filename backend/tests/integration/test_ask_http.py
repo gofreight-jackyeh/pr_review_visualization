@@ -69,7 +69,9 @@ def test_question_is_fenced_answered_with_resolved_cites_and_worktree_removed(as
     monkeypatch.delenv("PR_EXPLORER_ASK", raising=False)  # default: local
     c, ov, fake = ask_env
     client = _client(c, LOCAL)
-    assert client.get("/api/config").json() == {"ask": {"mode": "local", "allowed": True, "reason": None}}
+    cfg = client.get("/api/config").json()
+    assert cfg["ask"] == {"mode": "local", "allowed": True, "reason": None}
+    assert cfg["ai"]["default"]["engine"] in ("claude", "codex") and cfg["ai"]["engines"][0]["efforts"][0] == "low"
     r = client.post(f"/api/overlays/{ov}/questions", json={"question": QUESTION, "selected_id": "file:orders/services.py"})
     assert r.status_code == 202 and r.json()["status"] == "queued"
     q = _wait(client, ov, r.json()["question_id"])

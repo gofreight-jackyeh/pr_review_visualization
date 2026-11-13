@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from ...application.ports import AnalysisRequest, ContextDoc, LocalSpec
 from ...application.use_cases import AppError, Forbidden
+from ...domain.model.semantic import AiChoice
 from ...bootstrap import Container
 
 HOST = "0.0.0.0"  # owner decision 2026-11-11 (overrides spec §11 default); use --host 127.0.0.1 for local-only
@@ -36,12 +37,19 @@ class ContextDocIn(BaseModel):
     content: str
 
 
+class AiIn(BaseModel):
+    engine: Literal["claude", "codex"] = "claude"
+    model: str | None = Field(default=None, max_length=100)  # None / "": the engine's default
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+
+
 class AnalysisIn(BaseModel):
     pr_url: str | None = None
     local: LocalIn | None = None
     context_docs: list[ContextDocIn] = Field(default_factory=list, max_length=20)
     semantic_mode: Literal["auto", "off", "light", "standard", "deep"] = "auto"
     force: bool = False  # re-run although the overlay is cached (retry of failed / unavailable AI texts)
+    ai: AiIn | None = None  # who writes the PR texts and answers its questions; None = the server default
 
 
 class QuestionIn(BaseModel):
@@ -165,6 +173,7 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
             local=LocalSpec(**body.local.model_dump()) if body.local else None,
             context_docs=[ContextDoc(d.name, d.content) for d in body.context_docs],
             semantic_mode=body.semantic_mode,
+            ai=AiChoice(body.ai.engine, (body.ai.model or "").strip() or None, body.ai.effort) if body.ai else None,
         )
         aid, status, cached = c.analyze.start(req, force=body.force)
         if not cached:
@@ -202,7 +211,7 @@ def create_app(c: Container, executor: ThreadPoolExecutor | None = None) -> Fast
     @app.get("/api/config")
     def config(request: Request):
         allowed, reason = ask_access(ask_mode, request)
-        return {"ask": {"mode": ask_mode, "allowed": allowed, "reason": reason}}
+        return {"ask": {"mode": ask_mode, "allowed": allowed, "reason": reason}, "ai": c.ai_options}
 
     @app.post("/api/overlays/{overlay_id}/questions")
     def ask(overlay_id: str, body: QuestionIn, request: Request):

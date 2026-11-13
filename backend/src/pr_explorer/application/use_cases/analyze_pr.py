@@ -2,13 +2,14 @@
 
 - system map: (repo, merge_base_sha, analyzer_version, schema_version, semantic_on) — shared by every PR on that commit;
   on a miss the static map is rebuilt and Claude texts are carried over from an earlier map (pipeline._reuse)
-- overlay:    (repo, merge_base_sha, head_sha, analyzer_version, schema_version, semantic_mode[, context_docs hash])
+- overlay:    (repo, merge_base_sha, head_sha, analyzer_version, schema_version, semantic_mode[, context_docs hash][, AI profile])
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import threading
 import uuid
 
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from ...domain.model.document import SCHEMA_VERSION
 from ...domain.model.ids import short_hash
+from ...domain.model.semantic import EFFORTS, ENGINES, AiChoice
 from ...domain.services.complexity_score import MODES
 from .. import ports
 from ..pipeline import STAGES, Context, Pipeline
@@ -41,6 +43,18 @@ def system_map_key(pr: ResolvedPr, analyzer_version: str, semantic_on: bool, lan
                      *([profile] if profile else []), "semantic" if semantic_on else "static"])
 
 
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,99}$")  # a model name, never a CLI flag
+
+
+def validate_ai(ai: AiChoice) -> None:
+    if ai.engine not in ENGINES:
+        raise InvalidInput(f"engine must be one of {', '.join(ENGINES)}")
+    if ai.model is not None and not MODEL_RE.match(ai.model):
+        raise InvalidInput("model must be a model name (letters, digits, . _ : / - [ ])")
+    if ai.effort is not None and ai.effort not in EFFORTS:
+        raise InvalidInput(f"effort must be one of {', '.join(EFFORTS)}")
+
+
 def validate_request(req: AnalysisRequest) -> None:
     if bool(req.pr_url) == bool(req.local):
         raise InvalidInput("exactly one of pr_url / local is required")
@@ -48,6 +62,8 @@ def validate_request(req: AnalysisRequest) -> None:
         raise InvalidInput(f"semantic_mode must be one of {', '.join(MODES)}")
     if req.local and not (req.local.repo_path and req.local.base and req.local.head):
         raise InvalidInput("local requires repo_path, base and head")
+    if req.ai is not None:
+        validate_ai(req.ai)
     for d in req.context_docs:
         if not d.name or len(d.content) > 500_000:
             raise InvalidInput("context_docs entries need a name and content under 500 KB")
@@ -60,7 +76,7 @@ class AnalyzePr:
         self.pipeline = pipeline
         self.analyzer_version = ports.ANALYZER_VERSION
         self.output_language = pipeline.d.config.output_language  # part of both cache keys
-        self.semantic_profile = pipeline.d.config.semantic_profile  # ditto, when a Claude model / effort is set
+        self.ai_default = pipeline.d.config.ai_default  # its profile is part of both keys; a request's own of the overlay key
         self.pipeline_runs = 0
         self._pending: dict[str, tuple[AnalysisRequest, ResolvedPr, str]] = {}
         self._forced: dict[str, str] = {}  # overlay key -> id of the forced run in flight (single-flight for retries)
@@ -77,8 +93,10 @@ class AnalyzePr:
         if raw.get("context_docs"):
             raise InvalidInput("this analysis had attached documents, which are not stored: start it again from the home page")
         local = raw.get("local")
+        ai = raw.get("ai")
         req = AnalysisRequest(pr_url=raw.get("pr_url"), local=LocalSpec(**local) if local else None,
-                              semantic_mode=raw.get("semantic_mode") or "auto")
+                              semantic_mode=raw.get("semantic_mode") or "auto",
+                              ai=AiChoice(**ai) if isinstance(ai, dict) else None)
         return self.start(req, force=True)
 
     def start(self, req: AnalysisRequest, force: bool = False) -> tuple[str, str, bool]:
@@ -88,12 +106,15 @@ class AnalyzePr:
         whose Claude step did not complete is rebuilt by the pipeline anyway (REUSABLE_MAP_SEMANTIC); a complete one is
         reused. A second forced request for a key that is already being re-run joins that run instead of starting another."""
         validate_request(req)
+        if req.ai is not None and req.ai.engine not in self.pipeline.d.config.ai_engines:
+            raise InvalidInput(f"engine {req.ai.engine!r} is not enabled on this server (PR_EXPLORER_ENGINES)")
+        req = dataclasses.replace(req, ai=(req.ai or self.ai_default).over(self.ai_default))  # stored as run, for regenerate
         try:
             pr = self.source.resolve(req)
         except SourceError as exc:
             raise AcquireFailed(str(exc)) from exc
         key = cache_key(pr, self.analyzer_version, req.semantic_mode, req.context_docs, self.output_language,
-                        self.semantic_profile)
+                        req.ai.profile())
         aid = f"a_{uuid.uuid4().hex[:16]}"
         req_dict = dataclasses.asdict(req)
         req_dict["context_docs"] = [{"name": d.name} for d in req.context_docs]  # don't persist pasted contents
@@ -120,7 +141,7 @@ class AnalyzePr:
             req, pr, key = self._pending.pop(analysis_id)
         self.pipeline_runs += 1
         sm_key = system_map_key(pr, self.analyzer_version, req.semantic_mode != "off", self.output_language,
-                                self.semantic_profile)
+                                self.ai_default.profile())
         overlay_id = f"ov_{short_hash(key, length=20)}"
         system_map_id = f"sm_{short_hash(sm_key, length=20)}"
         ctx = Context(analysis_id, req, pr, key, overlay_id, sm_key, system_map_id, self.analyzer_version)

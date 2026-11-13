@@ -16,16 +16,18 @@ Start (or reuse) an analysis.
   "local": { "repo_path": "/abs/path", "base": "main", "head": "feature-x", "title": "optional", "body": "optional" },
   "context_docs": [{ "name": "jira-ABC-1.md", "content": "..." }],
   "semantic_mode": "auto",
-  "force": false
+  "force": false,
+  "ai": { "engine": "codex", "model": "gpt-6.1-sol", "effort": "high" }
 }
 ```
 
 - Exactly one of `pr_url` / `local` is required (400 otherwise).
 - `semantic_mode`: `auto | off | light | standard | deep` (default `auto`). It controls the PR explanation tier; the system map explanation runs whenever semantic_mode is not `off`.
+- `ai` (optional): which AI writes this PR's texts and answers its 「問 AI」 questions. `engine` is `claude` or `codex` and must be one the server enabled (`PR_EXPLORER_ENGINES`, else 400); `model` is a model name of that engine (letters, digits, `. _ : / - [ ]`, ≤100); `effort` is `low | medium | high | xhigh | max`. Missing parts fall back to the server default for the same engine, then to that CLI's own settings. The system map always uses the server default. Choosing `codex` sends the PR's code and analysis data to OpenAI. The overlay records the choice in `semantic.ai` (with the model that answered, when the CLI reports it).
 - `force` (optional, default `false`): retry. Skips the overlay cache hit and runs the pipeline again for the same request (always `202`, `cached: false`); the new overlay replaces the cached one under the same `overlay_id`. The system map is reused when its Claude step completed (`done` / `skipped`); a map whose Claude step failed, was unavailable or only partly explained is rebuilt. A second forced request for a key that is already being re-run returns the running analysis. The client must resend the request body (attached `context_docs` are not stored); a different `semantic_mode` or docs set is a different key.
 
-`POST /api/overlays/{overlay_id}/regenerate` (no body): the UI's 「重新產生 AI 說明」. The server repeats the stored request that produced that overlay (same PR, same `semantic_mode`) with `force` and answers like `POST /api/analyses` (`202`, `cached: false`). `404` for an unknown overlay; `400` when that analysis had attached `context_docs` (they are not stored — start it again from the home page).
-- Overlay cache key: `(repo, merge_base_sha, head_sha, analyzer_version, schema_version, semantic_mode, context_docs hash)`. A hit responds immediately with `"cached": true`, `status: "done"`.
+`POST /api/overlays/{overlay_id}/regenerate` (no body): the UI's 「重新產生 AI 說明」. The server repeats the stored request that produced that overlay (same PR, same `semantic_mode`, same `ai`) with `force` and answers like `POST /api/analyses` (`202`, `cached: false`). `404` for an unknown overlay; `400` when that analysis had attached `context_docs` (they are not stored — start it again from the home page).
+- Overlay cache key: `(repo, merge_base_sha, head_sha, analyzer_version, schema_version, semantic_mode, context_docs hash, AI profile)`; the AI profile (engine / model / effort) is empty for Claude with default settings. A hit responds immediately with `"cached": true`, `status: "done"`.
 - System map cache key: `(repo, merge_base_sha, analyzer_version, schema_version, semantic_on)`. Reused across PRs.
   On a miss the static map is rebuilt for the merge base, and Claude texts are carried over from the nearest stored
   2.x map of the same repo (any analyzer version; preferably one whose commit is an ancestor of the merge base):
@@ -132,8 +134,15 @@ Re-resolves the PR head (GitHub: `gh`; local: `git rev-parse <head>`).
 What this server allows the calling client to do.
 
 ```json
-{ "ask": { "mode": "local | all | off", "allowed": true, "reason": null } }
+{ "ask": { "mode": "local | all | off", "allowed": true, "reason": null },
+  "ai": { "default": { "engine": "claude", "effort": "high" },
+          "engines": [{ "engine": "claude", "efforts": ["low", "medium", "high", "xhigh", "max"], "models": ["opus", "sonnet", "haiku"] },
+                      { "engine": "codex", "efforts": ["low", "medium", "high", "xhigh", "max"], "models": ["gpt-6.1-sol"] }] } }
 ```
+
+`ai` lists the engines a request may choose (`POST /api/analyses` `ai`) with suggested model names (Claude's aliases;
+Codex's own cached model list), and the server default (`PR_EXPLORER_ENGINE`, `PR_EXPLORER_<ENGINE>_MODEL` /
+`_EFFORT`; absent parts = the CLI's own settings).
 
 `mode` is `PR_EXPLORER_ASK` (default `local`). `allowed` is computed for this request: `local` allows only clients whose
 TCP peer address is loopback (127.0.0.0/8, ::1), `all` allows every client, `off` allows nobody. When not allowed,

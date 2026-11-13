@@ -9,8 +9,9 @@ from typing import Any
 from .changes import ChangedFile, Coverage
 from .finding import Finding
 from .graph import CodeRef, Evidence
+from .semantic import AiChoice
 
-SCHEMA_VERSION = "2.5.0"
+SCHEMA_VERSION = "2.6.0"
 
 DISCLAIMER = (
     "Structure comes from static analysis (Python AST / TypeScript compiler) of the repository at one commit; "
@@ -204,6 +205,7 @@ class SemanticStatus:
     dropped_claims: int | None = None
     knowledge_sources: list[str] | None = None
     error: str | None = None
+    ai: AiChoice | None = None  # PR overlays (2.6.0): the engine / model / effort that wrote (or is writing) the texts
 
 
 @dataclass

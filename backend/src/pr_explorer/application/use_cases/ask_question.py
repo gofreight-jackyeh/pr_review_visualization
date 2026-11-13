@@ -10,6 +10,7 @@ import threading
 import uuid
 from typing import Callable
 
+from ...domain.model.semantic import ENGINES, AiChoice
 from ...domain.services.ask import QUESTION_MAX, ask_digest, cite_index, gate_answer
 from ..ports import (AnalysisRepository, DocumentStore, QuestionRepository, ResolvedPr, SemanticAnalyzer, SemanticRequest,
                      SourceError, SourceProvider)
@@ -34,6 +35,14 @@ def pr_from_index(idx: dict, overlay: dict) -> ResolvedPr:
 def public(q: dict) -> dict:
     return {"question_id": q["id"], "overlay_id": q["overlay_id"], "created_at": q["created_at"], "question": q["question"],
             "selected_id": q["selected_id"], "status": q["status"], "answer": q["answer"], "error": q["error"]}
+
+
+def overlay_ai(overlay: dict) -> AiChoice | None:
+    """The AI that wrote the overlay answers its questions too (None: overlays from before 2.6.0 → server default)."""
+    ai = (overlay.get("semantic") or {}).get("ai")
+    if not isinstance(ai, dict) or ai.get("engine") not in ENGINES:
+        return None
+    return AiChoice(ai["engine"], ai.get("model"), ai.get("effort"))
 
 
 class AskQuestion:
@@ -96,7 +105,7 @@ class AskQuestion:
                               history=history)
             pr_meta = overlay.get("pr", {})
             lang = self.language(pr_meta.get("title", ""), pr_meta.get("body") or "", q["question"])
-            draft = self.semantic.analyze(SemanticRequest("ask", ASK_TIER, lang, data, ws.head_root))
+            draft = self.semantic.analyze(SemanticRequest("ask", ASK_TIER, lang, data, ws.head_root, overlay_ai(overlay)))
             if draft.status != "done":
                 raise RuntimeError(f"Claude {draft.status}: {draft.error or ''}".strip())
             answer = gate_answer(draft.payload, cite_index(overlay, smap))

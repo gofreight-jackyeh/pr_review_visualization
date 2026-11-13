@@ -9,7 +9,7 @@ from typing import Any, Protocol
 from ...domain.model.changes import ChangedFile
 from ...domain.model.convention import DocExcerpt, DocRule, ImportContract, RepoSurface
 from ...domain.model.graph import SideGraph
-from ...domain.model.semantic import SemanticDraft
+from ...domain.model.semantic import AiChoice, SemanticDraft
 
 # Bump on ANY change that alters analysis output (prompts, caps, rules, detection): it is part of every cache key,
 # so forgetting it serves stale results. Claude texts still carry over across versions via map reuse.
@@ -45,6 +45,7 @@ class AnalysisRequest:
     local: LocalSpec | None = None
     context_docs: list[ContextDoc] = field(default_factory=list)
     semantic_mode: str = "auto"
+    ai: AiChoice | None = None  # who writes the PR texts and answers its questions; None = the server default
 
 
 @dataclass
@@ -119,6 +120,7 @@ class SemanticRequest:
     lang: str
     data: dict[str, Any]
     worktree: Path
+    ai: AiChoice | None = None  # None: the server default (system-map calls always use it)
 
 
 class SemanticAnalyzer(Protocol):

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from ...application.ports import SemanticRequest
 from ...domain.model.semantic import SemanticDraft
-from ..process.runner import CommandRunner
+from ..process.runner import CommandRunner, RunResult
 from ..security.secret_scrubber import scrub
 from .prompt_builder import build_user_prompt, system_prompt
 from .tool_policy import DISALLOWED_TOOLS, READ_ONLY_TOOLS, allowed_tools
@@ -102,6 +102,18 @@ class CallLog:
             pass
 
 
+def reported_model(raw: str) -> str | None:
+    """The model named in the CLI envelope's usage (`modelUsage`), if any: the main model is the one with most output."""
+    try:
+        usage = json.loads(raw.strip()).get("modelUsage")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    if not isinstance(usage, dict) or not usage:
+        return None
+    name = max(usage, key=lambda k: (usage[k] or {}).get("outputTokens", 0) if isinstance(usage[k], dict) else 0)
+    return name if isinstance(name, str) and len(name) <= 100 else None
+
+
 def parse_reply(raw: str) -> dict:
     """Extract the JSON object from the CLI envelope (`{"structured_output": {...}}` with --json-schema, else
     `{"result": "..."}`) or plain text."""
@@ -143,7 +155,8 @@ class ClaudeCliSemanticAnalyzer:
         # ignores every other MCP source, so without it the allow-listed MCP tools simply are not available.
         self.mcp_config = mcp_config
 
-    def command(self, tier: str, worktree: Path, kind: str = "pr") -> list[str]:
+    def command(self, tier: str, worktree: Path, kind: str = "pr", model: str | None = None,
+                effort: str | None = None) -> list[str]:
         """Isolation (spec §11): repo content must never become instructions, tools are read-only, PR code never runs.
 
         - cwd is an empty temp dir (see analyze), so the PR's .claude/settings.json hooks, CLAUDE.md and .mcp.json
@@ -167,10 +180,10 @@ class ClaudeCliSemanticAnalyzer:
         ]
         if mcp and self.mcp_config:
             cmd += ["--mcp-config", self.mcp_config]
-        if self.model:
-            cmd += ["--model", self.model]
-        if self.effort:
-            cmd += ["--effort", self.effort]
+        if model or self.model:
+            cmd += ["--model", model or self.model]
+        if effort or self.effort:
+            cmd += ["--effort", effort or self.effort]
         return cmd + [
             "--tools", ",".join(READ_ONLY_TOOLS),
             "--allowedTools", ",".join(allowed),
@@ -181,42 +194,69 @@ class ClaudeCliSemanticAnalyzer:
             "--max-turns", str(MAX_TURNS.get(tier, 4) + (1 if self.json_schema else 0)),
         ] + (["--json-schema", json.dumps(reply_schema(kind), separators=(",", ":"))] if self.json_schema else [])
 
+    engine = "claude"
+
+    def env(self) -> dict[str, str]:
+        return {k: v for k, v in os.environ.items() if k != CLAUDE_MD_FROM_ADDED_DIRS}
+
+    def defaults(self) -> tuple[str | None, str | None]:
+        """Model / effort when the request names none (None: the CLI's own setting)."""
+        return self.model, self.effort
+
+    def call(self, req: SemanticRequest, model: str | None, effort: str | None, prompt: str,
+             cwd: Path) -> tuple[RunResult, str, str | None]:
+        """One CLI run in `cwd` (fresh, empty): (result, reply text, model that answered)."""
+        cmd = self.command(req.tier, req.worktree, req.kind, model, effort)
+        res = self.runner.run(cmd, cwd=str(cwd), input=prompt, timeout=self.timeout, env=self.env())
+        return res, res.stdout, reported_model(res.stdout)
+
+    def schema_rejected(self, res: RunResult) -> bool:
+        """An older CLI without --json-schema: switch it off for good and ask again."""
+        if res.returncode != 0 and self.json_schema and "json-schema" in (res.stderr + res.stdout).lower():
+            self.json_schema = False
+            return True
+        return False
+
     def analyze(self, req: SemanticRequest) -> SemanticDraft:
         sources = ["repo:code"] if req.kind != "pr" else ["pr:metadata", "pr:diff"]
         sources = list(dict.fromkeys(sources + [f"repo:{d['path']}" for d in req.data.get("docs", []) if d.get("path")]
                                      + [f"context:{d['name']}" for d in req.data.get("context_docs", []) if d.get("name")]))
-        env = {k: v for k, v in os.environ.items() if k != CLAUDE_MD_FROM_ADDED_DIRS}
         problem = ""
         chars, secs = 0, 0.0
-        cmd = self.command(req.tier, req.worktree, req.kind)
+        ai = req.ai if req.ai is not None and req.ai.engine == self.engine else None
+        dm, de = self.defaults()
+        model, effort = (ai.model if ai else None) or dm, (ai.effort if ai else None) or de
         # secrets in the diff / docs never leave the machine either (they are redacted like in every document)
         prompt = scrub(build_user_prompt(req))
         size = len(prompt) + len(system_prompt(req.kind))
 
+        used: str | None = None
+
         def out(status: str, attempt: int, error: str | None = None, payload: dict | None = None) -> SemanticDraft:
             return SemanticDraft(status=status, error=error, payload=payload or {}, knowledge_sources=sources, calls=attempt,
-                                 prompt_chars=chars, seconds=round(secs, 1))
+                                 prompt_chars=chars, seconds=round(secs, 1), model=used or model)
 
         attempt = 0
         while attempt < MAX_ATTEMPTS:
             attempt += 1
             t0 = time.monotonic()
-            with tempfile.TemporaryDirectory(prefix="pr-explorer-claude-") as cwd:  # fresh, empty, removed after
-                res = self.runner.run(cmd, cwd=cwd, input=prompt, timeout=self.timeout, env=env)
+            with tempfile.TemporaryDirectory(prefix=f"pr-explorer-{self.engine}-") as cwd:  # fresh, empty, removed after
+                res, raw, answered = self.call(req, model, effort, prompt, Path(cwd))
             took = time.monotonic() - t0
             chars, secs = chars + size, secs + took
-            self.calls.write(kind=req.kind, tier=req.tier, model=self.model, effort=self.effort, attempt=attempt,
-                             prompt_chars=size, seconds=round(took, 1), returncode=res.returncode, reply_chars=len(res.stdout))
+            self.calls.write(kind=req.kind, tier=req.tier, engine=self.engine, model=model, effort=effort,
+                             attempt=attempt, prompt_chars=size, seconds=round(took, 1), returncode=res.returncode,
+                             reply_chars=len(raw))
             if res.returncode == 127:
-                return out("unavailable", attempt, "claude CLI not found")
-            if res.returncode != 0 and self.json_schema and "json-schema" in (res.stderr + res.stdout).lower():
-                self.json_schema = False  # an older CLI without structured output: same call, plain JSON reply
-                cmd, attempt = self.command(req.tier, req.worktree, req.kind), attempt - 1
+                return out("unavailable", attempt, f"{self.engine} CLI not found")
+            if self.schema_rejected(res):
+                attempt -= 1  # same call, plain JSON reply
                 continue
             if res.returncode != 0:
-                return out("failed", attempt, f"claude exited {res.returncode}: {res.stderr.strip()[:300]}")
+                return out("failed", attempt, f"{self.engine} exited {res.returncode}: {self.failure(res)[:300]}")
+            used = answered or used
             try:
-                obj = parse_reply(res.stdout)
+                obj = parse_reply(raw)
                 problem = malformed(obj, req.kind)
             except (ValueError, json.JSONDecodeError) as exc:
                 problem = f"unparseable reply: {exc}"
@@ -228,6 +268,9 @@ class ClaudeCliSemanticAnalyzer:
                 (["first reply malformed, retried once"] if attempt > 1 else [])
             return out("done", attempt, "; ".join(notes) or None, {k: obj[k] for k in allowed if k in obj})
         return out("failed", MAX_ATTEMPTS, f"{problem} (after {MAX_ATTEMPTS - 1} retry)"[:500])
+
+    def failure(self, res: RunResult) -> str:
+        return res.stderr.strip()
 
 
 def malformed(obj: dict, kind: str) -> str:

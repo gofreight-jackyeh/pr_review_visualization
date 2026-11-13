@@ -45,6 +45,7 @@ from ...domain.services.semantic_digest import (
 )
 from ...domain.services.semantic_gate import PrKnown, PrSemantic, apply_phases, apply_system_semantics, gate_pr
 from ...domain.model.document import TextBasis
+from ...domain.model.semantic import AiChoice
 from ...domain.services.static_findings import find_static_issues
 from ...domain.services.system_map_builder import assemble_system_map, build_flows, referenced_evidence
 from ...domain.services.system_structure import Structure, build_structure
@@ -121,9 +122,11 @@ class PipelineConfig:
     # Per-file static results cached under the data home; a run re-analyzes only what a change can affect (results
     # equal a full run's). False (PR_EXPLORER_INCREMENTAL=off): every file analyzed every run, cache unused.
     incremental: bool = True
-    # Claude model / effort chosen for every call ("model:…|effort:…", "" = the user's own Claude settings); part of
-    # both cache keys, so a result of another model is never served as this one's
-    semantic_profile: str = ""
+    # Server default AI (PR_EXPLORER_ENGINE / _CLAUDE_MODEL / _CLAUDE_EFFORT / _CODEX_MODEL / _CODEX_EFFORT). It writes
+    # every system map; an analysis request may choose another one for its PR texts. Part of the cache keys
+    # (AiChoice.profile), so a result of another engine / model / effort is never served as this one's.
+    ai_default: AiChoice = field(default_factory=AiChoice)
+    ai_engines: tuple[str, ...] = ("claude",)  # engines a request may choose (PR_EXPLORER_ENGINES)
 
     def language(self, *texts: str) -> str:
         return detect_language(*texts) if self.output_language == "auto" else self.output_language
@@ -1060,13 +1063,13 @@ class Pipeline:
             ctx.semantic = SemanticStatus("skipped", tier="none", decision=decision, knowledge_sources=sources)
             raise StageSkipped("; ".join([f"score {result.score:g}; mode {decision.mode}"] + notes))
         if early is None:
-            draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, self._pr_data(ctx, tier), ws.head_root))
+            draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, self._pr_data(ctx, tier), ws.head_root, ctx.request.ai))
         else:
             assert flight is not None
             labels = [(s, s.business_label) for fc in ctx.flow_changes for s in fc.steps]
             self._use_index(ctx, early)
             data = self._pr_data(ctx, tier)
-            draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, data, ws.head_root))
+            draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, data, ws.head_root, ctx.request.ai))
             doc, path, map_msg = flight.final.result()  # the overlay is still laid over the final map, as before
             if map_msg:
                 notes.append(map_msg)
@@ -1078,8 +1081,10 @@ class Pipeline:
                 notes.append("PR call started before the map's remaining calls finished")
             else:  # the stored map differs from what the early call was shown (e.g. it failed validation): ask again
                 notes.append(call_stats("PR (early, superseded)", [draft]))
-                draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, final, ws.head_root))
+                draft = self.d.semantic.analyze(SemanticRequest("pr", tier, ctx.lang, final, ws.head_root, ctx.request.ai))
         notes.append(call_stats("PR", [draft]))
+        if draft.model and ctx.request.ai is not None:  # what actually answered (the CLI default when none was chosen)
+            ctx.request.ai = AiChoice(ctx.request.ai.engine, ctx.request.ai.model or draft.model, ctx.request.ai.effort)
         if draft.status != "done":
             ctx.semantic = SemanticStatus(draft.status, tier=tier, decision=decision, knowledge_sources=sources,
                                           error=draft.error or draft.status)
@@ -1170,13 +1175,17 @@ class Pipeline:
                     el.business_name = t.get("business_name") or el.business_name
                     el.description = t.get("description") or el.description
                 setattr(head_additions, attr, items)
+        semantic = ctx.semantic
+        if semantic is not None and semantic.status != "skipped" and ctx.request.ai is not None:
+            semantic = copy.copy(semantic)
+            semantic.ai = ctx.request.ai  # which AI wrote (or is writing) the texts
         overlay = PrOverlay(
             analyzer_version=ctx.analyzer_version, overlay_id=ctx.overlay_id, system_map_id=ctx.system_map_id,
             generated_at=now_iso(), pr=pr, coverage=ctx.coverage, changes=ChangesPayload(ctx.files), purpose=purpose,
             behavior_changes=behavior, impacts=ctx.impacts, flow_changes=flow_changes, head_additions=head_additions,
             findings=findings, architecture_checks=sorted(self._with_notes(ctx.arch_checks, sem) + (sem.hypotheses if sem else []),
                                                           key=check_order), evidence=[],
-            semantic=ctx.semantic, walkthrough=walkthrough,
+            semantic=semantic, walkthrough=walkthrough,
             design_rationale=sem.design_rationale if sem else None,
         )
         in_map = {e["id"] for e in doc["evidence"]}

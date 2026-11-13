@@ -10,6 +10,7 @@ import { RetryAi } from "@/features/analysis-state/RetryAi"
 import { interfaceChanges } from "@/features/architecture/interfaces"
 import { cardDomId, changeCards, missingBefore, STEP_COUNT_LABEL, type ChangeCard } from "@/features/changes/cards"
 import { StaticGroups } from "@/features/changes/StaticChange"
+import { aiLabel } from "@/shared/ai/ai"
 
 const names = (m: Model, ids: string[]) => ids.map((id) => nameOfId(m, id).primary).join("、")
 
@@ -155,6 +156,7 @@ export function Summary() {
       <section aria-labelledby="sum-purpose">
         <h3 id="sum-purpose">這次修改</h3>
         <Purpose m={m} t={ov.purpose} />
+        {aiLabel(ov.semantic.ai) && <p className="muted small" data-testid="ai-used">AI 說明：{aiLabel(ov.semantic.ai)}</p>}
       </section>
       <div className="next-row" data-testid="next-row">
         <button className="primary big" data-testid="go-changes" onClick={() => ex.go({ nav: "changes", card: target?.id ?? null }, target ? cardDomId(target.id) : undefined)}>查看這次修改</button>

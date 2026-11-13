@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ..domain.model.semantic import AiChoice
 from ..application.ports import AnalysisRequest, LocalSpec
 from ..application.use_cases import AppError
 
@@ -26,6 +27,9 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--title")
     a.add_argument("--body")
     a.add_argument("--semantic", default="auto", choices=["auto", "off", "light", "standard", "deep"])
+    a.add_argument("--engine", choices=["claude", "codex"], help="AI for the PR texts (default: the server default)")
+    a.add_argument("--model", help="model of that engine (default: its own setting)")
+    a.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     a.add_argument("--dry-run-semantic", metavar="DIR",
                    help="do not call Claude: write every prompt to DIR (sizes are in the stage messages)")
     args = ap.parse_args(argv)
@@ -51,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
         pr_url=args.pr_url,
         local=LocalSpec(os.path.abspath(args.local), args.base, args.head, args.title, args.body) if args.local else None,
         semantic_mode=args.semantic,
+        ai=AiChoice(args.engine or c.analyze.ai_default.engine, args.model, args.effort)
+        if (args.engine or args.model or args.effort) else None,
     )
     try:
         paths, rec = c.analyze.analyze_sync(req)
