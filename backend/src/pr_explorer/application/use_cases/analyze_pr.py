@@ -23,19 +23,22 @@ from ..ports import AnalysisRepository, AnalysisRequest, LocalSpec, ResolvedPr, 
 from .errors import AcquireFailed, InvalidInput, NotFound
 
 
-def cache_key(pr: ResolvedPr, analyzer_version: str, semantic_mode: str, context_docs=(), lang: str = "auto") -> str:
+def cache_key(pr: ResolvedPr, analyzer_version: str, semantic_mode: str, context_docs=(), lang: str = "auto",
+              profile: str = "") -> str:
     """Overlay key. Attached docs change the overlay (knowledge sources, architecture context, the Claude prompt),
     so an order-independent hash of (name, content) is part of the key; omitted when there are none."""
     parts = [pr.repo_key, pr.merge_base_sha, pr.head_sha, analyzer_version, SCHEMA_VERSION, semantic_mode, f"lang:{lang}"]
     if context_docs:
         parts.append("docs:" + short_hash(*sorted(short_hash(d.name, d.content, length=64) for d in context_docs), length=20))
+    if profile:  # only when a model / effort is set, so keys of the default stay as they were
+        parts.append(profile)
     return "|".join(parts)
 
 
-def system_map_key(pr: ResolvedPr, analyzer_version: str, semantic_on: bool, lang: str = "auto") -> str:
-    # the language sits before the last part: donor lookup matches keys ending in "|semantic"
+def system_map_key(pr: ResolvedPr, analyzer_version: str, semantic_on: bool, lang: str = "auto", profile: str = "") -> str:
+    # language and profile sit before the last part: donor lookup matches keys ending in "|semantic"
     return "|".join([pr.repo_key, pr.merge_base_sha, analyzer_version, SCHEMA_VERSION, f"lang:{lang}",
-                     "semantic" if semantic_on else "static"])
+                     *([profile] if profile else []), "semantic" if semantic_on else "static"])
 
 
 def validate_request(req: AnalysisRequest) -> None:
@@ -57,6 +60,7 @@ class AnalyzePr:
         self.pipeline = pipeline
         self.analyzer_version = ports.ANALYZER_VERSION
         self.output_language = pipeline.d.config.output_language  # part of both cache keys
+        self.semantic_profile = pipeline.d.config.semantic_profile  # ditto, when a Claude model / effort is set
         self.pipeline_runs = 0
         self._pending: dict[str, tuple[AnalysisRequest, ResolvedPr, str]] = {}
         self._forced: dict[str, str] = {}  # overlay key -> id of the forced run in flight (single-flight for retries)
@@ -88,7 +92,8 @@ class AnalyzePr:
             pr = self.source.resolve(req)
         except SourceError as exc:
             raise AcquireFailed(str(exc)) from exc
-        key = cache_key(pr, self.analyzer_version, req.semantic_mode, req.context_docs, self.output_language)
+        key = cache_key(pr, self.analyzer_version, req.semantic_mode, req.context_docs, self.output_language,
+                        self.semantic_profile)
         aid = f"a_{uuid.uuid4().hex[:16]}"
         req_dict = dataclasses.asdict(req)
         req_dict["context_docs"] = [{"name": d.name} for d in req.context_docs]  # don't persist pasted contents
@@ -114,7 +119,8 @@ class AnalyzePr:
         with self._lock:
             req, pr, key = self._pending.pop(analysis_id)
         self.pipeline_runs += 1
-        sm_key = system_map_key(pr, self.analyzer_version, req.semantic_mode != "off", self.output_language)
+        sm_key = system_map_key(pr, self.analyzer_version, req.semantic_mode != "off", self.output_language,
+                                self.semantic_profile)
         overlay_id = f"ov_{short_hash(key, length=20)}"
         system_map_id = f"sm_{short_hash(sm_key, length=20)}"
         ctx = Context(analysis_id, req, pr, key, overlay_id, sm_key, system_map_id, self.analyzer_version)

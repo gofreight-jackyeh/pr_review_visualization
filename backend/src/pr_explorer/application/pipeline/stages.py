@@ -121,6 +121,9 @@ class PipelineConfig:
     # Per-file static results cached under the data home; a run re-analyzes only what a change can affect (results
     # equal a full run's). False (PR_EXPLORER_INCREMENTAL=off): every file analyzed every run, cache unused.
     incremental: bool = True
+    # Claude model / effort chosen for every call ("model:…|effort:…", "" = the user's own Claude settings); part of
+    # both cache keys, so a result of another model is never served as this one's
+    semantic_profile: str = ""
 
     def language(self, *texts: str) -> str:
         return detect_language(*texts) if self.output_language == "auto" else self.output_language

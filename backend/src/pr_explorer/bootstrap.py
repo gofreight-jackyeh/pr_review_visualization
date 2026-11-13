@@ -62,6 +62,21 @@ def output_language_from_env() -> str:
     return lang
 
 
+EFFORTS = ("low", "medium", "high", "xhigh", "max")  # `claude --effort` levels
+
+
+def claude_model_effort_from_env() -> tuple[str | None, str | None]:
+    """PR_EXPLORER_CLAUDE_MODEL (an alias such as opus / sonnet, or a full model name) and PR_EXPLORER_CLAUDE_EFFORT
+    (low | medium | high | xhigh | max) for every Claude call; unset = the user's own Claude settings."""
+    model = (os.environ.get("PR_EXPLORER_CLAUDE_MODEL") or "").strip() or None
+    effort = (os.environ.get("PR_EXPLORER_CLAUDE_EFFORT") or "").strip().lower() or None
+    if model and (model.startswith("-") or any(c.isspace() for c in model)):
+        raise ValueError(f"PR_EXPLORER_CLAUDE_MODEL is not a model name: {model!r}")
+    if effort and effort not in EFFORTS:
+        raise ValueError(f"PR_EXPLORER_CLAUDE_EFFORT must be one of {', '.join(EFFORTS)}; got {effort!r}")
+    return model, effort
+
+
 def incremental_from_env() -> bool:
     """PR_EXPLORER_INCREMENTAL: on (default) = per-file analysis results cached under the data home and only what a
     change can affect re-analyzed; off = every file analyzed on every run, cache neither read nor written."""
@@ -94,10 +109,14 @@ def build_container(
     source = SourceRouter(cache, LocalSourceProvider(cache, runner), GitHubSourceProvider(cache, gh_runner or runner))
     repo = SqliteAnalysisRepository(home / DB_NAME)
     store = FsDocumentStore(home)
+    model, effort = claude_model_effort_from_env()
     semantic = semantic or ClaudeCliSemanticAnalyzer(
         claude_runner or runner, os.environ.get("PR_EXPLORER_CLAUDE_BIN", "claude"), allowed_mcp_tools(),
-        mcp_config=os.environ.get("PR_EXPLORER_MCP_CONFIG") or None, log_path=home / "logs" / "semantic-calls.jsonl")
-    config = config or PipelineConfig(output_language=output_language_from_env(), incremental=incremental_from_env())
+        mcp_config=os.environ.get("PR_EXPLORER_MCP_CONFIG") or None, log_path=home / "logs" / "semantic-calls.jsonl",
+        model=model, effort=effort)
+    profile = "|".join(f"{k}:{v}" for k, v in (("model", model), ("effort", effort)) if v)
+    config = config or PipelineConfig(output_language=output_language_from_env(), incremental=incremental_from_env(),
+                                      semantic_profile=profile)
     file_cache = FileResultCache(home / CACHE_DB, analysis_cache_bytes()) if config.incremental else None
     ts_path = ts_cli or Path(os.environ.get("PR_EXPLORER_TS_CLI") or PROJECT_ROOT / "tools/ts-analyzer/dist/cli.js")
     deps = PipelineDeps(

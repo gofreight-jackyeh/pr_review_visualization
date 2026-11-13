@@ -131,8 +131,9 @@ def parse_reply(raw: str) -> dict:
 class ClaudeCliSemanticAnalyzer:
     def __init__(self, runner: CommandRunner, claude_bin: str = "claude", mcp_tools: list[str] | None = None,
                  timeout: float = 600, mcp_config: str | None = None, log_path: Path | None = None,
-                 json_schema: bool = True):
+                 json_schema: bool = True, model: str | None = None, effort: str | None = None):
         self.runner = runner
+        self.model, self.effort = model, effort  # None: whatever the user's Claude settings say
         self.json_schema = json_schema  # turned off for good when the CLI rejects --json-schema
         self.calls = CallLog(log_path)
         self.claude_bin = claude_bin
@@ -166,6 +167,10 @@ class ClaudeCliSemanticAnalyzer:
         ]
         if mcp and self.mcp_config:
             cmd += ["--mcp-config", self.mcp_config]
+        if self.model:
+            cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["--effort", self.effort]
         return cmd + [
             "--tools", ",".join(READ_ONLY_TOOLS),
             "--allowedTools", ",".join(allowed),
@@ -200,8 +205,8 @@ class ClaudeCliSemanticAnalyzer:
                 res = self.runner.run(cmd, cwd=cwd, input=prompt, timeout=self.timeout, env=env)
             took = time.monotonic() - t0
             chars, secs = chars + size, secs + took
-            self.calls.write(kind=req.kind, tier=req.tier, attempt=attempt, prompt_chars=size, seconds=round(took, 1),
-                             returncode=res.returncode, reply_chars=len(res.stdout))
+            self.calls.write(kind=req.kind, tier=req.tier, model=self.model, effort=self.effort, attempt=attempt,
+                             prompt_chars=size, seconds=round(took, 1), returncode=res.returncode, reply_chars=len(res.stdout))
             if res.returncode == 127:
                 return out("unavailable", attempt, "claude CLI not found")
             if res.returncode != 0 and self.json_schema and "json-schema" in (res.stderr + res.stdout).lower():

@@ -34,6 +34,13 @@ def test_language_is_part_of_both_cache_keys():
     assert zh != en and zh.endswith("|semantic")  # donor lookup relies on this suffix
 
 
+def test_claude_model_effort_profile_keys_only_when_set():
+    assert cache_key(PR, "v", "standard", lang="en") == cache_key(PR, "v", "standard", lang="en", profile="")
+    assert cache_key(PR, "v", "standard", lang="en") != cache_key(PR, "v", "standard", lang="en", profile="effort:low")
+    plain, low = system_map_key(PR, "v", True, "en"), system_map_key(PR, "v", True, "en", "effort:low")
+    assert plain != low and low.endswith("|semantic")
+
+
 def test_donor_language_reads_the_claude_texts():
     zh = {"capabilities": [{"description": {"text": "顧客在結帳時輸入折扣碼，系統依折扣後金額計算總價並建立訂單。", "source": "semantic"}}]}
     en = {"capabilities": [{"description": {"text": "Customers enter a discount code at checkout.", "source": "semantic"}}]}
